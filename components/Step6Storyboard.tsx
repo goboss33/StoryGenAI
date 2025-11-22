@@ -67,14 +67,7 @@ const Step6Storyboard: React.FC<Props> = ({ storyState, script, stylePrompt, asp
     return canvasRef.current.toDataURL('image/png');
   };
 
-  useEffect(() => {
-    scenes.forEach(scene => {
-      if (scene.status === 'pending' && !scene.imageUri) {
-        triggerSceneGeneration(scene.id);
-      }
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Removed auto-generation: user must click Generate manually
 
   const syncToParent = (updatedScenes: SceneState[]) => { onUpdateState({ script: updatedScenes }); };
 
@@ -209,6 +202,19 @@ const Step6Storyboard: React.FC<Props> = ({ storyState, script, stylePrompt, asp
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
             Back to Script
           </button>
+          <button
+            onClick={() => {
+              scenes.forEach(scene => {
+                if (!scene.imageUri && scene.status !== 'generating') {
+                  triggerSceneGeneration(scene.id);
+                }
+              });
+            }}
+            className="px-4 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 flex items-center gap-2"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+            Generate All
+          </button>
           <button onClick={handleSaveProject} className="px-4 py-2 bg-indigo-100 text-indigo-700 font-bold rounded-lg hover:bg-indigo-200">Save Project</button>
         </div>
       </div>
@@ -218,7 +224,9 @@ const Step6Storyboard: React.FC<Props> = ({ storyState, script, stylePrompt, asp
           <div key={scene.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col group">
             <div className="p-3 border-b border-slate-100 flex justify-between">
               <span className="font-bold text-slate-700 text-xs">Scene {scene.number}</span>
-              <button onClick={() => triggerSceneGeneration(scene.id)} className="text-xs text-indigo-600 font-bold hover:underline">Regenerate</button>
+              {scene.imageUri && (
+                <button onClick={() => triggerSceneGeneration(scene.id)} className="text-xs text-indigo-600 font-bold hover:underline">Regenerate</button>
+              )}
             </div>
             <div className={`relative bg-slate-100 w-full ${aspectRatio === '16:9' ? 'aspect-video' : aspectRatio === '9:16' ? 'aspect-[9/16]' : 'aspect-square'}`}>
               {scene.status === 'generating' ? (
@@ -227,7 +235,17 @@ const Step6Storyboard: React.FC<Props> = ({ storyState, script, stylePrompt, asp
                 <video src={scene.videoUri} controls autoPlay loop className="w-full h-full object-cover" />
               ) : scene.imageUri ? (
                 <img src={scene.imageUri} className="w-full h-full object-cover" alt="Scene" />
-              ) : null}
+              ) : (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <button
+                    onClick={() => triggerSceneGeneration(scene.id)}
+                    className="px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 shadow-lg flex items-center gap-2 transition-transform hover:scale-105"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                    Generate Image
+                  </button>
+                </div>
+              )}
 
               {!scene.videoUri && scene.status === 'complete' && (
                 <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">

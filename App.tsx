@@ -19,23 +19,21 @@ const App: React.FC = () => {
   const [state, setState] = useState<StoryState>({
     step: 0,
     idea: '',
-    totalDuration: 60, // Default 1 minute
+    totalDuration: 60,
     pacing: 'standard',
     language: 'English',
     script: [],
-    stylePrompt: 'Cinematic lighting, photorealistic, 8k, highly detailed', // Default style
+    stylePrompt: 'Cinematic lighting, photorealistic, 8k, highly detailed',
     aspectRatio: '16:9',
     assets: [],
     isAssetsGenerated: false
   });
 
-  // Debug State
   const [debugMode, setDebugMode] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [totalUsage, setTotalUsage] = useState<UsageStats>({ inputTokens: 0, outputTokens: 0, cost: 0 });
   const logEndRef = useRef<HTMLDivElement>(null);
 
-  // Subscribe to service logs & usage
   useEffect(() => {
     const unsubscribeLogs = subscribeToDebugLog((log) => {
       setLogs(prev => [...prev, { ...log, id: crypto.randomUUID() }]);
@@ -55,7 +53,6 @@ const App: React.FC = () => {
     };
   }, []);
 
-  // Auto-scroll logs
   useEffect(() => {
     if (debugMode && logEndRef.current) {
       logEndRef.current.scrollIntoView({ behavior: 'smooth' });
@@ -70,13 +67,12 @@ const App: React.FC = () => {
     setState(prev => ({ ...prev, ...updates }));
   };
 
-  // Triggers script generation and moves to Step 3 (Script View)
   const handleForceCreateScript = () => {
     setState(prev => ({
       ...prev,
-      script: [], // Clear script to trigger regeneration
-      assets: [], // Clear assets
-      step: 2     // Move to Script Step (Index 2 now)
+      script: [],
+      assets: [],
+      step: 2
     }));
   };
 
@@ -88,13 +84,10 @@ const App: React.FC = () => {
     }
   };
 
-  // 0: Idea, 1: Style, 2: Script, 3: Storyboard
   const calculateMaxStep = () => {
     let max = 0;
-    if (state.idea.length > 10) max = 1; // Idea valid -> Style ready
-    if (state.script.length > 0) max = 3; // Script exists -> Storyboard ready (skip assets step)
-    // Note: max=2 (Script) is implied if > 0. 
-    // If script is generated, we allow going to Storyboard immediately.
+    if (state.idea.length > 10) max = 1;
+    if (state.script.length > 0) max = 3;
     return max;
   };
 
@@ -116,126 +109,123 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      {/* Layout Container */}
-      <div className={`max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 transition-all duration-300 ${debugMode ? 'flex gap-6 max-w-[95vw]' : ''}`}>
+      <main className={`max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 ${debugMode ? 'pb-[420px]' : ''}`}>
+        <div className="mb-10">
+          <Steps currentStep={state.step} maxStep={maxStep} onStepClick={goToStep} />
+        </div>
 
-        {/* Main Application Area */}
-        <main className="flex-1 min-w-0">
-          <div className="mb-10">
-            <Steps currentStep={state.step} maxStep={maxStep} onStepClick={goToStep} />
-          </div>
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 md:p-8 min-h-[700px] flex flex-col">
+          {state.step === 0 && (
+            <Step1Idea
+              idea={state.idea}
+              totalDuration={state.totalDuration}
+              pacing={state.pacing}
+              language={state.language}
+              onUpdate={updateState}
+              onNext={nextStep}
+              onImport={importProject}
+              isDebugMode={debugMode}
+              setIsDebugMode={setDebugMode}
+            />
+          )}
 
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 md:p-8 min-h-[700px] flex flex-col">
+          {state.step === 1 && (
+            <Step2Style
+              stylePrompt={state.stylePrompt}
+              aspectRatio={state.aspectRatio}
+              onUpdate={updateState}
+              onNext={nextStep}
+              onBack={prevStep}
+              onCreateScript={handleForceCreateScript}
+              isNextStepReady={state.script.length > 0}
+            />
+          )}
 
-            {state.step === 0 && (
-              <Step1Idea
-                idea={state.idea}
-                totalDuration={state.totalDuration}
-                pacing={state.pacing}
-                language={state.language}
-                onUpdate={updateState}
-                onNext={nextStep}
-                onImport={importProject}
-                isDebugMode={debugMode}
-                setIsDebugMode={setDebugMode}
-              />
-            )}
+          {state.step === 2 && (
+            <Step2Script
+              idea={state.idea}
+              totalDuration={state.totalDuration}
+              pacing={state.pacing}
+              language={state.language}
+              script={state.script}
+              assets={state.assets}
+              stylePrompt={state.stylePrompt}
+              onUpdateScript={(script) => updateState({ script })}
+              onUpdateAssets={(assets) => updateState({ assets })}
+              onBack={prevStep}
+              onNext={nextStep}
+              isNextStepReady={state.script.length > 0}
+            />
+          )}
 
-            {state.step === 1 && (
-              <Step2Style
-                stylePrompt={state.stylePrompt}
-                aspectRatio={state.aspectRatio}
-                onUpdate={updateState}
-                onNext={nextStep}
-                onBack={prevStep}
-                onCreateScript={handleForceCreateScript}
-                isNextStepReady={state.script.length > 0}
-              />
-            )}
+          {state.step === 3 && (
+            <Step6Storyboard
+              storyState={state}
+              script={state.script}
+              stylePrompt={state.stylePrompt}
+              aspectRatio={state.aspectRatio}
+              assets={state.assets}
+              onUpdateState={updateState}
+              onBack={prevStep}
+            />
+          )}
+        </div>
+      </main>
 
-            {state.step === 2 && (
-              <Step2Script
-                idea={state.idea}
-                totalDuration={state.totalDuration}
-                pacing={state.pacing}
-                language={state.language}
-                script={state.script}
-                assets={state.assets}
-                stylePrompt={state.stylePrompt}
-                onUpdateScript={(script) => updateState({ script })}
-                onUpdateAssets={(assets) => updateState({ assets })}
-                onBack={prevStep}
-                onNext={nextStep}
-                isNextStepReady={state.script.length > 0}
-              />
-            )}
-
-            {state.step === 3 && (
-              <Step6Storyboard
-                storyState={state}
-                script={state.script}
-                stylePrompt={state.stylePrompt}
-                aspectRatio={state.aspectRatio}
-                assets={state.assets}
-                onUpdateState={updateState}
-                onBack={prevStep}
-              />
-            )}
-          </div>
-        </main>
-
-        {/* DEBUG LOG WINDOW */}
-        {debugMode && (
-          <aside className="w-[450px] flex-shrink-0 h-[780px] sticky top-24">
-            <div className="bg-slate-900 rounded-xl border border-slate-700 shadow-xl overflow-hidden flex flex-col h-full">
-              <div className="bg-slate-950 p-3 border-b border-slate-800 flex justify-between items-center">
-                <div className="flex items-center gap-2 text-slate-400">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                  <span className="text-xs font-mono font-bold uppercase tracking-wider">GenAI Debug Console</span>
-                </div>
-                <button onClick={() => setLogs([])} className="text-[10px] text-slate-500 hover:text-white uppercase font-bold">Clear</button>
+      {/* DEBUG BOTTOM BAR */}
+      {debugMode && (
+        <div className="fixed bottom-0 left-0 right-0 z-50 bg-slate-900 border-t border-slate-700 shadow-2xl">
+          <div className="flex flex-col h-[400px]">
+            <div className="bg-slate-950 px-6 py-3 border-b border-slate-800 flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                <span className="text-sm font-mono font-bold uppercase tracking-wider text-slate-300">GenAI Debug Console</span>
               </div>
-              <div className="flex-1 overflow-y-auto p-4 font-mono text-xs space-y-4 custom-scrollbar">
-                {logs.length === 0 && (
-                  <div className="text-slate-600 italic text-center mt-20">Waiting for API activity...</div>
-                )}
-                {logs.map(log => (
-                  <div key={log.id} className="flex flex-col gap-1 group">
-                    <div className="flex items-center gap-2">
-                      <span className="text-slate-600 text-[10px]">{new Date(log.timestamp).toLocaleTimeString()}</span>
-                      <span className={`px-1.5 rounded-sm font-bold text-[9px] uppercase ${log.type === 'req' ? 'bg-blue-900 text-blue-300' :
-                          log.type === 'res' ? 'bg-emerald-900 text-emerald-300' :
-                            log.type === 'error' ? 'bg-red-900 text-red-300' : 'bg-slate-800 text-slate-300'
-                        }`}>{log.type}</span>
-                      <span className="text-slate-300 font-bold">{log.title}</span>
-                    </div>
-                    <div className="bg-slate-950/50 p-2 rounded border border-slate-800 text-slate-400 whitespace-pre-wrap break-words overflow-hidden select-text">
-                      {JSON.stringify(log.data, null, 2)}
-                    </div>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-4 px-4 border-l border-r border-slate-700">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase">In</span>
+                    <span className="text-xs font-mono text-slate-300">{totalUsage.inputTokens.toLocaleString()}</span>
                   </div>
-                ))}
-                <div ref={logEndRef}></div>
-              </div>
-
-              {/* USAGE STATS PANEL */}
-              <div className="bg-slate-950 border-t border-slate-800 p-4 grid grid-cols-3 gap-4">
-                <div className="flex flex-col">
-                  <span className="text-[10px] text-slate-500 font-bold uppercase">Input Tokens</span>
-                  <span className="text-sm font-mono text-slate-300">{totalUsage.inputTokens.toLocaleString()}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase">Out</span>
+                    <span className="text-xs font-mono text-slate-300">{totalUsage.outputTokens.toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase">Cost</span>
+                    <span className="text-xs font-mono text-emerald-400">${totalUsage.cost.toFixed(4)}</span>
+                  </div>
                 </div>
-                <div className="flex flex-col">
-                  <span className="text-[10px] text-slate-500 font-bold uppercase">Output Tokens</span>
-                  <span className="text-sm font-mono text-slate-300">{totalUsage.outputTokens.toLocaleString()}</span>
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-[10px] text-slate-500 font-bold uppercase">Est. Cost</span>
-                  <span className="text-sm font-mono text-emerald-400">${totalUsage.cost.toFixed(4)}</span>
-                </div>
+                <button onClick={() => setLogs([])} className="text-xs text-slate-500 hover:text-white uppercase font-bold px-3 py-1 rounded hover:bg-slate-800 transition-colors">Clear</button>
+                <button onClick={() => setDebugMode(false)} className="text-slate-500 hover:text-white transition-colors">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
               </div>
             </div>
-          </aside>
-        )}
-      </div>
+            <div className="flex-1 overflow-y-auto px-6 py-4 font-mono text-xs space-y-3 custom-scrollbar">
+              {logs.length === 0 && (
+                <div className="text-slate-600 italic text-center mt-12">Waiting for API activity...</div>
+              )}
+              {logs.map(log => (
+                <div key={log.id} className="flex flex-col gap-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-600 text-[10px]">{new Date(log.timestamp).toLocaleTimeString()}</span>
+                    <span className={`px-1.5 rounded-sm font-bold text-[9px] uppercase ${log.type === 'req' ? 'bg-blue-900 text-blue-300' :
+                        log.type === 'res' ? 'bg-emerald-900 text-emerald-300' :
+                          log.type === 'error' ? 'bg-red-900 text-red-300' : 'bg-slate-800 text-slate-300'
+                      }`}>{log.type}</span>
+                    <span className="text-slate-300 font-bold">{log.title}</span>
+                  </div>
+                  <div className="bg-slate-950/50 p-2 rounded border border-slate-800 text-slate-400 whitespace-pre-wrap break-words overflow-hidden select-text">
+                    {JSON.stringify(log.data, null, 2)}
+                  </div>
+                </div>
+              ))}
+              <div ref={logEndRef}></div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
