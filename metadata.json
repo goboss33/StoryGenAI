@@ -1,0 +1,5 @@
+{
+  "name": "StoryGen AI (gemini-3-pro-image-preview)",
+  "description": "Stable version of the prompts (90%).\nSome fine-tuning still needed but acceptable",
+  "requestFramePermissions": []
+}
