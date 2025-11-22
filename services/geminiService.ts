@@ -24,10 +24,10 @@ const logDebug = (type: LogType, title: string, data: any) => {
 const VALID_SHOT_TYPES = ["Wide Shot", "Medium Shot", "Close Up", "Extreme Close Up"];
 const VALID_CAMERA_ANGLES = ["Eye Level", "Low Angle", "High Angle"];
 const VALID_COMPOSITION_TAGS = [
-    "Symmetrical", "Rule of Thirds", "Center Framed", "Dynamic Diagonal", "Leading Lines", 
-    "Depth of Field", "Shallow Focus", "Deep Focus", "Silhouette", "Backlit", 
-    "High Contrast", "Low Key", "High Key", "Minimalist", "Cluttered / Busy", 
-    "Over the Shoulder", "Dutch Angle", "Bokeh", "Golden Hour", "Blue Hour"
+  "Symmetrical", "Rule of Thirds", "Center Framed", "Dynamic Diagonal", "Leading Lines",
+  "Depth of Field", "Shallow Focus", "Deep Focus", "Silhouette", "Backlit",
+  "High Contrast", "Low Key", "High Key", "Minimalist", "Cluttered / Busy",
+  "Over the Shoulder", "Dutch Angle", "Bokeh", "Golden Hour", "Blue Hour"
 ];
 
 // --- Helper to parse Data URI ---
@@ -39,15 +39,48 @@ function parseDataUri(dataUri: string): { mimeType: string; data: string } {
   return { mimeType: match[1], data: match[2] };
 }
 
+// --- USAGE TRACKING INFRASTRUCTURE ---
+export interface UsageStats {
+  inputTokens: number;
+  outputTokens: number;
+  cost: number;
+}
+
+type UsageListener = (stats: UsageStats) => void;
+let usageListeners: UsageListener[] = [];
+
+export const subscribeToUsage = (listener: UsageListener) => {
+  usageListeners.push(listener);
+  return () => { usageListeners = usageListeners.filter(l => l !== listener); };
+};
+
+const trackUsage = (model: string, inputTokens: number, outputTokens: number, specialCost?: number) => {
+  let cost = 0;
+
+  // Pricing Logic (User Provided)
+  if (model.includes('gemini-3-pro')) {
+    // Text: $2.00/1M input, $12.00/1M output
+    cost += (inputTokens / 1000000) * 2.00;
+    cost += (outputTokens / 1000000) * 12.00;
+  }
+
+  if (specialCost) {
+    cost += specialCost;
+  }
+
+  const stats: UsageStats = { inputTokens, outputTokens, cost };
+  usageListeners.forEach(l => l(stats));
+};
+
 // --- 1. Generate Script (Relational Architecture) ---
 export const generateScript = async (
-    idea: string, 
-    totalDuration: number, 
-    pacing: Pacing, 
-    language: string = 'English'
+  idea: string,
+  totalDuration: number,
+  pacing: Pacing,
+  language: string = 'English'
 ): Promise<{ script: Scene[], assets: Asset[] }> => {
   try {
-    
+
     // NEW STRICT SYSTEM PROMPT (Hierarchy & Reusability Rules)
     let prompt = `
       Role: Expert Director & Production Asset Manager.
@@ -58,11 +91,11 @@ export const generateScript = async (
       - Write the script as a series of SEQUENCES.
       
       **VISUAL DYNAMISM INSTRUCTION (${pacing.toUpperCase()} PACING):**
-      ${pacing === 'fast' 
-          ? "- High Energy: Force frequent location changes. Do not linger in one room for the whole story. Move the characters through different environments to keep the visual flow dynamic." 
-          : pacing === 'slow' 
-              ? "- Atmospheric: Focus on depth within locations. Allow scenes to breathe, but ensure camera angles vary significantly to maintain interest." 
-              : "- Balanced Flow: Mix stable character moments with environment changes to drive the narrative forward."
+      ${pacing === 'fast'
+        ? "- High Energy: Force frequent location changes. Do not linger in one room for the whole story. Move the characters through different environments to keep the visual flow dynamic."
+        : pacing === 'slow'
+          ? "- Atmospheric: Focus on depth within locations. Allow scenes to breathe, but ensure camera angles vary significantly to maintain interest."
+          : "- Balanced Flow: Mix stable character moments with environment changes to drive the narrative forward."
       }
 
       - **DEFINITION OF A SEQUENCE:** A sequence is a container for shots that occur in ONE single, continuous physical location with a consistent lighting environment.
@@ -211,50 +244,59 @@ export const generateScript = async (
     };
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview', 
+      model: 'gemini-3-pro-preview',
       contents: prompt,
-      config: { 
+      config: {
         responseMimeType: 'application/json',
         responseSchema: responseSchema
       }
     });
 
+    // Track Usage
+    if (response.usageMetadata) {
+      trackUsage(
+        'gemini-3-pro-preview',
+        response.usageMetadata.promptTokenCount || 0,
+        response.usageMetadata.candidatesTokenCount || 0
+      );
+    }
+
     const text = response.text;
     let data;
     try {
-       data = JSON.parse(text || '{}');
-       logDebug('res', 'Generate Script Response', data);
+      data = JSON.parse(text || '{}');
+      logDebug('res', 'Generate Script Response', data);
     } catch (e) {
-       logDebug('error', 'Generate Script JSON Parse Error', { textRaw: text });
-       throw new Error("Failed to parse script JSON.");
+      logDebug('error', 'Generate Script JSON Parse Error', { textRaw: text });
+      throw new Error("Failed to parse script JSON.");
     }
 
     if (!data.sequences) throw new Error("No sequences generated");
-    
+
     const world = data.world || { locations: [], characters: [], items: [] };
     let sequences = data.sequences || [];
 
     // --- POST-PROCESS: MERGE CONSECUTIVE SEQUENCES ---
     const mergedSequences: any[] = [];
     if (sequences.length > 0) {
-        let currentSeq = sequences[0];
-        if (!currentSeq.shots) currentSeq.shots = [];
+      let currentSeq = sequences[0];
+      if (!currentSeq.shots) currentSeq.shots = [];
 
-        for (let i = 1; i < sequences.length; i++) {
-            const nextSeq = sequences[i];
-            if (!nextSeq.shots) nextSeq.shots = [];
+      for (let i = 1; i < sequences.length; i++) {
+        const nextSeq = sequences[i];
+        if (!nextSeq.shots) nextSeq.shots = [];
 
-            if (nextSeq.locationId === currentSeq.locationId && nextSeq.time === currentSeq.time) {
-                currentSeq.shots = [...currentSeq.shots, ...nextSeq.shots];
-                if (nextSeq.context && !currentSeq.context.includes(nextSeq.context)) {
-                    currentSeq.context += " " + nextSeq.context;
-                }
-            } else {
-                mergedSequences.push(currentSeq);
-                currentSeq = nextSeq;
-            }
+        if (nextSeq.locationId === currentSeq.locationId && nextSeq.time === currentSeq.time) {
+          currentSeq.shots = [...currentSeq.shots, ...nextSeq.shots];
+          if (nextSeq.context && !currentSeq.context.includes(nextSeq.context)) {
+            currentSeq.context += " " + nextSeq.context;
+          }
+        } else {
+          mergedSequences.push(currentSeq);
+          currentSeq = nextSeq;
         }
-        mergedSequences.push(currentSeq);
+      }
+      mergedSequences.push(currentSeq);
     }
     sequences = mergedSequences;
 
@@ -263,22 +305,22 @@ export const generateScript = async (
 
     // Helper to create assets with Hierarchy support
     const createAsset = (def: any, type: AssetType): Asset => ({
-        id: def.id,
-        name: def.name.toUpperCase(),
-        type: type,
-        parentId: def.parentId, // Capture Parent ID
-        locationType: def.type, // Capture MASTER/SUB
-        visuals: {
-            subject: def.name,
-            details: def.description,
-            pose: type === AssetType.LOCATION ? "Wide establishing shot" : "Single Full body shot",
-            constraint: type === AssetType.LOCATION ? "Environment only" : "Single view only",
-            background: type === AssetType.LOCATION ? "Cinematic atmosphere" : "Isolated on white",
-            lighting: type === AssetType.LOCATION ? "Cinematic lighting" : "Studio lighting",
-            expression: "Neutral",
-            clothing: "Standard"
-        },
-        status: 'pending'
+      id: def.id,
+      name: def.name.toUpperCase(),
+      type: type,
+      parentId: def.parentId, // Capture Parent ID
+      locationType: def.type, // Capture MASTER/SUB
+      visuals: {
+        subject: def.name,
+        details: def.description,
+        pose: type === AssetType.LOCATION ? "Wide establishing shot" : "Single Full body shot",
+        constraint: type === AssetType.LOCATION ? "Environment only" : "Single view only",
+        background: type === AssetType.LOCATION ? "Cinematic atmosphere" : "Isolated on white",
+        lighting: type === AssetType.LOCATION ? "Cinematic lighting" : "Studio lighting",
+        expression: "Neutral",
+        clothing: "Standard"
+      },
+      status: 'pending'
     });
 
     (world.locations || []).forEach((l: any) => assets.push(createAsset(l, AssetType.LOCATION)));
@@ -290,40 +332,41 @@ export const generateScript = async (
     let shotCounter = 1;
 
     sequences.forEach((seq: any) => {
-        const locAsset = assets.find(a => a.id === seq.locationId);
-        const locationName = locAsset ? locAsset.name : "UNKNOWN";
-        const fullSlug = `${locationName} - ${seq.time || 'DAY'}`;
-        const groupSceneId = seq.id || crypto.randomUUID();
+      const locAsset = assets.find(a => a.id === seq.locationId);
+      const locationName = locAsset ? locAsset.name : "UNKNOWN";
+      const fullSlug = `${locationName} - ${seq.time || 'DAY'}`;
+      const groupSceneId = seq.id || crypto.randomUUID();
 
-        (seq.shots || []).forEach((shot: any) => {
-            const usedAssets = [
-                ...(shot.castIds || []),
-                ...(shot.itemIds || [])
-            ];
+      (seq.shots || []).forEach((shot: any) => {
+        const usedAssets = [
+          ...(shot.castIds || []),
+          ...(shot.itemIds || [])
+        ];
 
-            script.push({
-                id: crypto.randomUUID(),
-                sceneId: groupSceneId, 
-                number: shotCounter++,
-                location: fullSlug,
-                locationAssetId: seq.locationId,
-                sceneContext: seq.context || "",
-                duration: shot.duration || 5,
-                shotType: shot.shotType || "Wide Shot",
-                cameraAngle: shot.cameraAngle || "Eye Level",
-                cameraMovement: shot.movement || "Static",
-                compositionTags: shot.compositionTags || [], // Map New Field
-                description: shot.action || "",
-                lighting: seq.lighting || "Natural",
-                weather: seq.weather || "Clear",
-                dialogue: shot.dialogue || "",
-                narration: shot.narration || "",
-                sfx: shot.sfx || "",
-                music: shot.music || "",
-                transition: "Cut to",
-                usedAssetIds: usedAssets
-            });
+        script.push({
+          id: crypto.randomUUID(),
+          sceneId: groupSceneId,
+          number: shotCounter++,
+          location: fullSlug,
+          time: seq.time || 'DAY',
+          locationAssetId: seq.locationId,
+          sceneContext: seq.context || "",
+          duration: shot.duration || 5,
+          shotType: shot.shotType || "Wide Shot",
+          cameraAngle: shot.cameraAngle || "Eye Level",
+          cameraMovement: shot.movement || "Static",
+          compositionTags: shot.compositionTags || [], // Map New Field
+          description: shot.action || "",
+          lighting: seq.lighting || "Natural",
+          weather: seq.weather || "Clear",
+          dialogue: shot.dialogue || "",
+          narration: shot.narration || "",
+          sfx: shot.sfx || "",
+          music: shot.music || "",
+          transition: "Cut to",
+          usedAssetIds: usedAssets
         });
+      });
     });
 
     return { script, assets };
@@ -337,13 +380,13 @@ export const generateScript = async (
 
 // --- 2. Extract Assets (Deprecated/Unused logic now that script handles it) ---
 export const extractAssets = async (script: Scene[]): Promise<{ assets: Asset[], sceneMappings: any }> => {
-    return { assets: [], sceneMappings: {} };
+  return { assets: [], sceneMappings: {} };
 };
 
 // --- 3. Generate Image (Gemini 3 Pro) ---
 export const generateImage = async (
-    prompt: string, 
-    aspectRatio: string // e.g. "16:9", "1:1"
+  prompt: string,
+  aspectRatio: string // e.g. "16:9", "1:1"
 ): Promise<string> => {
   try {
     logDebug('req', 'Generate Image (Gemini 3 Pro)', { prompt, aspectRatio });
@@ -352,171 +395,183 @@ export const generateImage = async (
     const cleanPrompt = prompt.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
 
     const response = await ai.models.generateContent({
-        model: 'gemini-3-pro-image-preview',
-        contents: { parts: [{ text: cleanPrompt }] },
-        config: { 
-            responseModalities: [Modality.IMAGE],
-            imageConfig: {
-                aspectRatio: aspectRatio as any
-            }
-        },
+      model: 'gemini-3-pro-image-preview',
+      contents: { parts: [{ text: cleanPrompt }] },
+      config: {
+        responseModalities: [Modality.IMAGE],
+        imageConfig: {
+          aspectRatio: aspectRatio as any
+        }
+      },
     });
+
+    // Track Usage (Image Cost: $0.134)
+    trackUsage('gemini-3-pro-image-preview', 0, 0, 0.134);
 
     const candidate = response.candidates?.[0];
     const part = candidate?.content?.parts?.[0];
 
     // Check for InlineData (base64)
     if (part && part.inlineData && part.inlineData.data) {
-         logDebug('res', 'Generate Image Success', { size: part.inlineData.data.length });
-         return `data:image/png;base64,${part.inlineData.data}`;
+      logDebug('res', 'Generate Image Success', { size: part.inlineData.data.length });
+      return `data:image/png;base64,${part.inlineData.data}`;
     }
-    
+
     throw new Error("No image data received from Gemini 3 Pro");
 
   } catch (err) {
-      logDebug('error', 'Generate Image Failed', err);
-      throw err;
+    logDebug('error', 'Generate Image Failed', err);
+    throw err;
   }
 };
 
 // --- 4. Edit Image (Gemini 3 Pro) ---
 export const editImage = async (
-    imageUri: string, 
-    prompt: string, 
-    _ignored?: any, 
-    maskBase64?: string
+  imageUri: string,
+  prompt: string,
+  _ignored?: any,
+  maskBase64?: string
 ): Promise<string> => {
-    try {
-        logDebug('req', 'Edit Image (Gemini 3 Pro)', { prompt, hasMask: !!maskBase64 });
-        const { mimeType, data } = parseDataUri(imageUri);
-        const parts: any[] = [
-             { inlineData: { mimeType, data } },
-             { text: prompt }
-        ];
-        
-        if (maskBase64) {
-             const maskData = parseDataUri(maskBase64);
-             parts.push({ inlineData: { mimeType: maskData.mimeType, data: maskData.data } });
-             parts.push({ text: "Use the black and white image as a mask. White is the area to edit." });
-        }
+  try {
+    logDebug('req', 'Edit Image (Gemini 3 Pro)', { prompt, hasMask: !!maskBase64 });
+    const { mimeType, data } = parseDataUri(imageUri);
+    const parts: any[] = [
+      { inlineData: { mimeType, data } },
+      { text: prompt }
+    ];
 
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-pro-image-preview',
-            contents: { parts },
-            config: { responseModalities: [Modality.IMAGE] }
-        });
-
-        const candidate = response.candidates?.[0];
-        const part = candidate?.content?.parts?.[0];
-
-        if (part && part.inlineData && part.inlineData.data) {
-             logDebug('res', 'Edit Image Success', { size: part.inlineData.data.length });
-             return `data:image/png;base64,${part.inlineData.data}`;
-        }
-        throw new Error("No image generated from edit");
-    } catch (error) {
-        logDebug('error', 'Edit Image Failed', error);
-        console.error("Edit image failed:", error);
-        throw error;
+    if (maskBase64) {
+      const maskData = parseDataUri(maskBase64);
+      parts.push({ inlineData: { mimeType: maskData.mimeType, data: maskData.data } });
+      parts.push({ text: "Use the black and white image as a mask. White is the area to edit." });
     }
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-pro-image-preview',
+      contents: { parts },
+      config: { responseModalities: [Modality.IMAGE] }
+    });
+
+    // Track Usage (Image Cost: $0.134)
+    trackUsage('gemini-3-pro-image-preview', 0, 0, 0.134);
+
+    const candidate = response.candidates?.[0];
+    const part = candidate?.content?.parts?.[0];
+
+    if (part && part.inlineData && part.inlineData.data) {
+      logDebug('res', 'Edit Image Success', { size: part.inlineData.data.length });
+      return `data:image/png;base64,${part.inlineData.data}`;
+    }
+    throw new Error("No image generated from edit");
+  } catch (error) {
+    logDebug('error', 'Edit Image Failed', error);
+    console.error("Edit image failed:", error);
+    throw error;
+  }
 };
 
 // --- 5. Generate Video (Veo) ---
 export const generateVideo = async (imageUri: string, prompt: string, aspectRatio: '16:9' | '9:16' = '16:9'): Promise<string> => {
-    if (typeof window !== 'undefined' && (window as any).aistudio) {
-        try {
-            const hasKey = await (window as any).aistudio.hasSelectedApiKey();
-            if (!hasKey) await (window as any).aistudio.openSelectKey();
-        } catch (e) { console.warn("AI Studio key check failed", e); }
-    }
-
-    logDebug('req', 'Generate Video (Veo)', { prompt, aspectRatio });
-
-    const veoAi = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
-    const { mimeType, data } = parseDataUri(imageUri);
-
+  if (typeof window !== 'undefined' && (window as any).aistudio) {
     try {
-        let operation = await veoAi.models.generateVideos({
-            model: 'veo-3.1-fast-generate-preview',
-            prompt: prompt || "Animate this scene naturally",
-            image: { imageBytes: data, mimeType: mimeType },
-            config: { numberOfVideos: 1, resolution: '720p', aspectRatio: aspectRatio }
-        });
+      const hasKey = await (window as any).aistudio.hasSelectedApiKey();
+      if (!hasKey) await (window as any).aistudio.openSelectKey();
+    } catch (e) { console.warn("AI Studio key check failed", e); }
+  }
 
-        while (!operation.done) {
-            await new Promise(resolve => setTimeout(resolve, 5000));
-            operation = await veoAi.operations.getVideosOperation({ operation });
-        }
+  logDebug('req', 'Generate Video (Veo)', { prompt, aspectRatio });
 
-        const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
-        if (!videoUri) throw new Error("No video URI returned");
+  const veoAi = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+  const { mimeType, data } = parseDataUri(imageUri);
 
-        const videoRes = await fetch(`${videoUri}&key=${process.env.API_KEY}`);
-        const videoBlob = await videoRes.blob();
-        const url = URL.createObjectURL(videoBlob);
-        logDebug('res', 'Generate Video Success', { url });
-        return url;
+  try {
+    let operation = await veoAi.models.generateVideos({
+      model: 'veo-3.1-fast-generate-preview',
+      prompt: prompt || "Animate this scene naturally",
+      image: { imageBytes: data, mimeType: mimeType },
+      config: { numberOfVideos: 1, resolution: '720p', aspectRatio: aspectRatio }
+    });
 
-    } catch (error: any) {
-        logDebug('error', 'Generate Video Failed', error);
-        if (error.message && error.message.includes("Requested entity was not found") && (window as any).aistudio) {
-             try { await (window as any).aistudio.openSelectKey(); throw new Error("API Key refreshed. Please try again."); } catch (e) { /* ignore */ }
-        }
-        console.error("Video generation failed:", error);
-        throw error;
+    // Track Usage (Video Cost: $0.15/s * 5s = $0.75)
+    trackUsage('veo-3.1-fast-generate-preview', 0, 0, 0.75);
+
+    while (!operation.done) {
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      operation = await veoAi.operations.getVideosOperation({ operation });
     }
+
+    const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
+    if (!videoUri) throw new Error("No video URI returned");
+
+    const videoRes = await fetch(`${videoUri}&key=${process.env.API_KEY}`);
+    const videoBlob = await videoRes.blob();
+    const url = URL.createObjectURL(videoBlob);
+    logDebug('res', 'Generate Video Success', { url });
+    return url;
+
+  } catch (error: any) {
+    logDebug('error', 'Generate Video Failed', error);
+    if (error.message && error.message.includes("Requested entity was not found") && (window as any).aistudio) {
+      try { await (window as any).aistudio.openSelectKey(); throw new Error("API Key refreshed. Please try again."); } catch (e) { /* ignore */ }
+    }
+    console.error("Video generation failed:", error);
+    throw error;
+  }
 };
 
 // --- 6. Generate Multimodal Image (Gemini 3 Pro) ---
 export const generateMultimodalImage = async (
-    prompt: string, 
-    references: { name: string; data: string; mimeType: string }[], 
-    aspectRatio: string
+  prompt: string,
+  references: { name: string; data: string; mimeType: string }[],
+  aspectRatio: string
 ): Promise<string> => {
-    try {
-        logDebug('req', 'Generate Multimodal Image (Gemini 3 Pro)', { prompt, refs: references.map(r => r.name), aspectRatio });
-        const parts: any[] = [];
-        references.forEach(ref => {
-            parts.push({ inlineData: { mimeType: ref.mimeType, data: ref.data } });
-        });
-        parts.push({ text: prompt });
+  try {
+    logDebug('req', 'Generate Multimodal Image (Gemini 3 Pro)', { prompt, refs: references.map(r => r.name), aspectRatio });
+    const parts: any[] = [];
+    references.forEach(ref => {
+      parts.push({ inlineData: { mimeType: ref.mimeType, data: ref.data } });
+    });
+    parts.push({ text: prompt });
 
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-pro-image-preview',
-            contents: { parts },
-            config: { 
-                responseModalities: [Modality.IMAGE],
-                imageConfig: {
-                    aspectRatio: aspectRatio as any
-                }
-            }
-        });
-
-        const candidate = response.candidates?.[0];
-        const part = candidate?.content?.parts?.[0];
-
-        if (part && part.inlineData && part.inlineData.data) {
-            logDebug('res', 'Generate Multimodal Success', { size: part.inlineData.data.length });
-            return `data:image/png;base64,${part.inlineData.data}`;
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-pro-image-preview',
+      contents: { parts },
+      config: {
+        responseModalities: [Modality.IMAGE],
+        imageConfig: {
+          aspectRatio: aspectRatio as any
         }
-        throw new Error("No multimodal image generated");
-    } catch (error) {
-        logDebug('error', 'Multimodal Gen Failed', error);
-        console.error("Multimodal gen failed:", error);
-        throw error;
+      }
+    });
+
+    // Track Usage (Image Cost: $0.134)
+    trackUsage('gemini-3-pro-image-preview', 0, 0, 0.134);
+
+    const candidate = response.candidates?.[0];
+    const part = candidate?.content?.parts?.[0];
+
+    if (part && part.inlineData && part.inlineData.data) {
+      logDebug('res', 'Generate Multimodal Success', { size: part.inlineData.data.length });
+      return `data:image/png;base64,${part.inlineData.data}`;
     }
+    throw new Error("No multimodal image generated");
+  } catch (error) {
+    logDebug('error', 'Multimodal Gen Failed', error);
+    console.error("Multimodal gen failed:", error);
+    throw error;
+  }
 };
 
 // --- 7. Outpaint/Resize Image ---
 export const outpaintImage = async (imageUri: string, targetAspectRatio: string): Promise<string> => {
-    const prompt = `Resize and extend this image to fit a ${targetAspectRatio} aspect ratio. Fill in the background naturally to match the style.`;
-    return editImage(imageUri, prompt);
+  const prompt = `Resize and extend this image to fit a ${targetAspectRatio} aspect ratio. Fill in the background naturally to match the style.`;
+  return editImage(imageUri, prompt);
 };
 
 // --- 8. Generate Refinement Questions ---
-export const generateRefinementQuestions = async (script: Scene[], stylePrompt: string): Promise<RefineQuestion[]> => { 
-    logDebug('info', 'Refinement Questions Skipped (Not Implemented)', {});
-    return []; 
+export const generateRefinementQuestions = async (script: Scene[], stylePrompt: string): Promise<RefineQuestion[]> => {
+  logDebug('info', 'Refinement Questions Skipped (Not Implemented)', {});
+  return [];
 };
 export const generateBridgeScene = async (prevDesc: string, nextDesc: string, stylePrompt: string): Promise<{ description: string; narration: string }> => {
   return { description: "A transition", narration: "" };

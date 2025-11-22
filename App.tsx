@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { StoryState } from './types';
 import Step1Idea from './components/Step1Idea';
@@ -6,7 +5,7 @@ import Step2Style from './components/Step2Style';
 import Step2Script from './components/Step2Script';
 import Step6Storyboard from './components/Step6Storyboard';
 import { Steps } from './components/ui/Steps';
-import { subscribeToDebugLog } from './services/geminiService';
+import { subscribeToDebugLog, subscribeToUsage, UsageStats } from './services/geminiService';
 
 interface LogEntry {
   id: string;
@@ -33,14 +32,27 @@ const App: React.FC = () => {
   // Debug State
   const [debugMode, setDebugMode] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [totalUsage, setTotalUsage] = useState<UsageStats>({ inputTokens: 0, outputTokens: 0, cost: 0 });
   const logEndRef = useRef<HTMLDivElement>(null);
 
-  // Subscribe to service logs
+  // Subscribe to service logs & usage
   useEffect(() => {
-    const unsubscribe = subscribeToDebugLog((log) => {
+    const unsubscribeLogs = subscribeToDebugLog((log) => {
       setLogs(prev => [...prev, { ...log, id: crypto.randomUUID() }]);
     });
-    return unsubscribe;
+
+    const unsubscribeUsage = subscribeToUsage((stats) => {
+      setTotalUsage(prev => ({
+        inputTokens: prev.inputTokens + stats.inputTokens,
+        outputTokens: prev.outputTokens + stats.outputTokens,
+        cost: prev.cost + stats.cost
+      }));
+    });
+
+    return () => {
+      unsubscribeLogs();
+      unsubscribeUsage();
+    };
   }, []);
 
   // Auto-scroll logs
@@ -99,14 +111,14 @@ const App: React.FC = () => {
             </span>
           </div>
           <div className="hidden md:flex items-center gap-4 text-sm font-medium text-slate-500">
-             Powered by Gemini 2.5 Flash & Veo
+            Powered by Gemini 2.5 Flash & Veo
           </div>
         </div>
       </header>
 
       {/* Layout Container */}
       <div className={`max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 transition-all duration-300 ${debugMode ? 'flex gap-6 max-w-[95vw]' : ''}`}>
-        
+
         {/* Main Application Area */}
         <main className="flex-1 min-w-0">
           <div className="mb-10">
@@ -114,9 +126,9 @@ const App: React.FC = () => {
           </div>
 
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 md:p-8 min-h-[700px] flex flex-col">
-            
+
             {state.step === 0 && (
-              <Step1Idea 
+              <Step1Idea
                 idea={state.idea}
                 totalDuration={state.totalDuration}
                 pacing={state.pacing}
@@ -140,9 +152,9 @@ const App: React.FC = () => {
                 isNextStepReady={state.script.length > 0}
               />
             )}
-            
+
             {state.step === 2 && (
-              <Step2Script 
+              <Step2Script
                 idea={state.idea}
                 totalDuration={state.totalDuration}
                 pacing={state.pacing}
@@ -159,7 +171,7 @@ const App: React.FC = () => {
             )}
 
             {state.step === 3 && (
-              <Step6Storyboard 
+              <Step6Storyboard
                 storyState={state}
                 script={state.script}
                 stylePrompt={state.stylePrompt}
@@ -175,37 +187,52 @@ const App: React.FC = () => {
         {/* DEBUG LOG WINDOW */}
         {debugMode && (
           <aside className="w-[450px] flex-shrink-0 h-[780px] sticky top-24">
-             <div className="bg-slate-900 rounded-xl border border-slate-700 shadow-xl overflow-hidden flex flex-col h-full">
-                <div className="bg-slate-950 p-3 border-b border-slate-800 flex justify-between items-center">
-                  <div className="flex items-center gap-2 text-slate-400">
-                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                     <span className="text-xs font-mono font-bold uppercase tracking-wider">GenAI Debug Console</span>
+            <div className="bg-slate-900 rounded-xl border border-slate-700 shadow-xl overflow-hidden flex flex-col h-full">
+              <div className="bg-slate-950 p-3 border-b border-slate-800 flex justify-between items-center">
+                <div className="flex items-center gap-2 text-slate-400">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                  <span className="text-xs font-mono font-bold uppercase tracking-wider">GenAI Debug Console</span>
+                </div>
+                <button onClick={() => setLogs([])} className="text-[10px] text-slate-500 hover:text-white uppercase font-bold">Clear</button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 font-mono text-xs space-y-4 custom-scrollbar">
+                {logs.length === 0 && (
+                  <div className="text-slate-600 italic text-center mt-20">Waiting for API activity...</div>
+                )}
+                {logs.map(log => (
+                  <div key={log.id} className="flex flex-col gap-1 group">
+                    <div className="flex items-center gap-2">
+                      <span className="text-slate-600 text-[10px]">{new Date(log.timestamp).toLocaleTimeString()}</span>
+                      <span className={`px-1.5 rounded-sm font-bold text-[9px] uppercase ${log.type === 'req' ? 'bg-blue-900 text-blue-300' :
+                          log.type === 'res' ? 'bg-emerald-900 text-emerald-300' :
+                            log.type === 'error' ? 'bg-red-900 text-red-300' : 'bg-slate-800 text-slate-300'
+                        }`}>{log.type}</span>
+                      <span className="text-slate-300 font-bold">{log.title}</span>
+                    </div>
+                    <div className="bg-slate-950/50 p-2 rounded border border-slate-800 text-slate-400 whitespace-pre-wrap break-words overflow-hidden select-text">
+                      {JSON.stringify(log.data, null, 2)}
+                    </div>
                   </div>
-                  <button onClick={() => setLogs([])} className="text-[10px] text-slate-500 hover:text-white uppercase font-bold">Clear</button>
+                ))}
+                <div ref={logEndRef}></div>
+              </div>
+
+              {/* USAGE STATS PANEL */}
+              <div className="bg-slate-950 border-t border-slate-800 p-4 grid grid-cols-3 gap-4">
+                <div className="flex flex-col">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase">Input Tokens</span>
+                  <span className="text-sm font-mono text-slate-300">{totalUsage.inputTokens.toLocaleString()}</span>
                 </div>
-                <div className="flex-1 overflow-y-auto p-4 font-mono text-xs space-y-4 custom-scrollbar">
-                   {logs.length === 0 && (
-                     <div className="text-slate-600 italic text-center mt-20">Waiting for API activity...</div>
-                   )}
-                   {logs.map(log => (
-                     <div key={log.id} className="flex flex-col gap-1 group">
-                        <div className="flex items-center gap-2">
-                           <span className="text-slate-600 text-[10px]">{new Date(log.timestamp).toLocaleTimeString()}</span>
-                           <span className={`px-1.5 rounded-sm font-bold text-[9px] uppercase ${
-                              log.type === 'req' ? 'bg-blue-900 text-blue-300' :
-                              log.type === 'res' ? 'bg-emerald-900 text-emerald-300' :
-                              log.type === 'error' ? 'bg-red-900 text-red-300' : 'bg-slate-800 text-slate-300'
-                           }`}>{log.type}</span>
-                           <span className="text-slate-300 font-bold">{log.title}</span>
-                        </div>
-                        <div className="bg-slate-950/50 p-2 rounded border border-slate-800 text-slate-400 whitespace-pre-wrap break-words overflow-hidden select-text">
-                           {JSON.stringify(log.data, null, 2)}
-                        </div>
-                     </div>
-                   ))}
-                   <div ref={logEndRef}></div>
+                <div className="flex flex-col">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase">Output Tokens</span>
+                  <span className="text-sm font-mono text-slate-300">{totalUsage.outputTokens.toLocaleString()}</span>
                 </div>
-             </div>
+                <div className="flex flex-col">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase">Est. Cost</span>
+                  <span className="text-sm font-mono text-emerald-400">${totalUsage.cost.toFixed(4)}</span>
+                </div>
+              </div>
+            </div>
           </aside>
         )}
       </div>

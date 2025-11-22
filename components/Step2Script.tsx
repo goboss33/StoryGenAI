@@ -340,7 +340,7 @@ const Step2Script: React.FC<Props> = ({
             if (!map.has(gid)) {
                 const locAsset = assets.find(a => a.id === shot.locationAssetId);
                 const parts = shot.location.split(' - ');
-                const time = parts.length > 1 ? parts[parts.length - 1] : 'DAY';
+                const time = (shot.time || 'DAY').toUpperCase();
 
                 const group: SceneGroup = {
                     sceneId: gid,

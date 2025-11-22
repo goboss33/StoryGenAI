@@ -3,36 +3,37 @@ export interface Scene {
   id: string;
   sceneId: string; // Relational ID to group shots into a single Scene event
   number: number;
-  
+
   // 1. Technical Info
   location: string; // slugline text e.g. EXT. FOREST - DAY
+  time: string; // DAY, NIGHT, DAWN, DUSK
   sceneContext: string; // Global context of the scene
   duration: number;
-  
+
   // 2. Camera / Framing
   shotType: string;
   cameraAngle: string;
   cameraMovement: string;
   compositionTags: string[]; // Replaces visualStyle
-  
+
   // 3. Visual Action
   description: string; // Action lines
   lighting: string;
   weather: string;
-  
+
   // 4. Audio
   dialogue: string;
   narration: string;
   sfx: string;
   music: string;
-  
+
   // 5. Post/Trans
   transition: string;
-  
+
   // Relational Data
   locationAssetId?: string; // Link to the Master Location Asset
   usedAssetIds: string[]; // IDs of characters/items in this specific shot
-  
+
   // App State
   imageUri?: string;
   videoUri?: string;
