@@ -10,8 +10,7 @@ interface StepsProps {
 const steps = [
   { title: 'Concept', desc: 'L\'idée' },
   { title: 'Style', desc: 'D.A. & Format' },
-  { title: 'Script', desc: 'Scénario' },
-  { title: 'Storyboard', desc: 'Génération' },
+  { title: 'Production', desc: 'Script & Storyboard' },
 ];
 
 export const Steps: React.FC<StepsProps> = ({ currentStep, maxStep, onStepClick }) => {
@@ -20,15 +19,15 @@ export const Steps: React.FC<StepsProps> = ({ currentStep, maxStep, onStepClick 
       <div className="relative flex justify-between">
         {/* Background Line */}
         <div className="absolute top-1/2 left-0 w-full h-1 bg-slate-200 -translate-y-1/2 z-0 rounded-full"></div>
-        
+
         {/* Active Progress Line (fills up to the max reachable step) */}
-        <div 
+        <div
           className="absolute top-1/2 left-0 h-1 bg-indigo-300 -translate-y-1/2 z-0 transition-all duration-500 ease-in-out rounded-full"
           style={{ width: `${(maxStep / (steps.length - 1)) * 100}%` }}
         ></div>
 
         {/* Current Step Progress Line (Darker, fills up to current step) */}
-        <div 
+        <div
           className="absolute top-1/2 left-0 h-1 bg-indigo-600 -translate-y-1/2 z-0 transition-all duration-500 ease-in-out rounded-full"
           style={{ width: `${(currentStep / (steps.length - 1)) * 100}%` }}
         ></div>
@@ -55,12 +54,12 @@ export const Steps: React.FC<StepsProps> = ({ currentStep, maxStep, onStepClick 
           }
 
           return (
-            <div 
-              key={index} 
+            <div
+              key={index}
               className={`relative z-10 flex flex-col items-center group ${isClickable ? 'cursor-pointer' : 'cursor-default'}`}
               onClick={() => isClickable && onStepClick(index)}
             >
-              <div 
+              <div
                 className={`w-10 h-10 rounded-full flex items-center justify-center border-4 transition-all duration-300 font-bold ${circleClasses}`}
               >
                 {index + 1}

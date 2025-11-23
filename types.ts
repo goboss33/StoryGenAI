@@ -40,6 +40,7 @@ export interface Scene {
   isGenerating?: boolean;
   sceneStoryboardUri?: string;
   storyboardPanelUri?: string;
+  storyboardPanelDimensions?: { width: number; height: number };
 }
 
 export interface AssetMapping {

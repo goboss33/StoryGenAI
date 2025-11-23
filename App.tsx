@@ -3,7 +3,6 @@ import { StoryState } from './types';
 import Step1Idea from './components/Step1Idea';
 import Step2Style from './components/Step2Style';
 import Step2Script from './components/Step2Script';
-import Step6Storyboard from './components/Step6Storyboard';
 import { Steps } from './components/ui/Steps';
 import { subscribeToDebugLog, subscribeToUsage, UsageStats } from './services/geminiService';
 
@@ -87,7 +86,7 @@ const App: React.FC = () => {
   const calculateMaxStep = () => {
     let max = 0;
     if (state.idea.length > 10) max = 1;
-    if (state.script.length > 0) max = 3;
+    if (state.script.length > 0) max = 2;
     return max;
   };
 
@@ -160,17 +159,7 @@ const App: React.FC = () => {
             />
           )}
 
-          {state.step === 3 && (
-            <Step6Storyboard
-              storyState={state}
-              script={state.script}
-              stylePrompt={state.stylePrompt}
-              aspectRatio={state.aspectRatio}
-              assets={state.assets}
-              onUpdateState={updateState}
-              onBack={prevStep}
-            />
-          )}
+
         </div>
       </main>
 

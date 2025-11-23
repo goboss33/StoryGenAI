@@ -433,7 +433,7 @@ COMPOSITION RULES:
             const targetRatio = ratioW / ratioH;
 
             // Extract each panel
-            const panelUris: string[] = [];
+            const panelUris: { uri: string; width: number; height: number }[] = [];
             for (let i = 0; i < Math.min(shotCount, rows * cols); i++) {
                 const row = Math.floor(i / cols);
                 const col = i % cols;
@@ -477,14 +477,19 @@ COMPOSITION RULES:
 
                 // Convert to data URI
                 const dataUri = canvas.toDataURL('image/png');
-                panelUris.push(dataUri);
+                panelUris.push({ uri: dataUri, width: finalWidth, height: finalHeight });
             }
 
             // Assign panels to shots in order
             const updatedScript = script.map(shot => {
                 const shotIndex = sceneGroup.shots.findIndex(s => s.id === shot.id);
                 if (shotIndex !== -1 && shotIndex < panelUris.length) {
-                    return { ...shot, storyboardPanelUri: panelUris[shotIndex] };
+                    const panel = panelUris[shotIndex];
+                    return {
+                        ...shot,
+                        storyboardPanelUri: panel.uri,
+                        storyboardPanelDimensions: { width: panel.width, height: panel.height }
+                    };
                 }
                 return shot;
             });
@@ -675,6 +680,27 @@ COMPOSITION RULES:
         onUpdateAssets([...assets, newAsset]);
         setIsAddingAsset(false);
         setNewAssetData({ name: '', type: AssetType.CHARACTER });
+    };
+
+    const handleSaveProject = () => {
+        const projectData = {
+            idea,
+            totalDuration,
+            pacing,
+            language,
+            script,
+            stylePrompt,
+            aspectRatio,
+            assets,
+            step: 2
+        };
+        const blob = new Blob([JSON.stringify(projectData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `storygen-project-${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
     };
 
     if (error) {
@@ -1116,30 +1142,44 @@ COMPOSITION RULES:
                                             </div>
 
                                             {/* BACK FACE */}
-                                            <div className={`absolute inset-0 backface-hidden rotate-y-180 bg-slate-900 rounded-xl overflow-hidden shadow-sm flex flex-col items-center justify-center text-center p-6 ${flippedShots[shot.id] ? '' : 'pointer-events-none'}`}>
+                                            <div className={`absolute inset-0 backface-hidden rotate-y-180 bg-slate-900 rounded-xl overflow-hidden shadow-sm ${flippedShots[shot.id] ? '' : 'pointer-events-none'}`}>
                                                 <button
                                                     onClick={() => toggleFlip(shot.id)}
-                                                    className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors z-10"
+                                                    className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center bg-black/50 hover:bg-black/70 rounded-full text-white transition-colors z-20 backdrop-blur-sm"
                                                 >
                                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                                                 </button>
 
                                                 {shot.storyboardPanelUri ? (
                                                     /* Display storyboard panel if available */
-                                                    <img
-                                                        src={shot.storyboardPanelUri}
-                                                        alt={`Storyboard panel for shot ${shot.number}`}
-                                                        className="w-full h-full object-contain"
-                                                    />
+                                                    <>
+                                                        <img
+                                                            src={shot.storyboardPanelUri}
+                                                            alt={`Storyboard panel for shot ${shot.number}`}
+                                                            className="w-full h-full object-cover"
+                                                        />
+                                                        {/* Overlay with shot info */}
+                                                        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-4">
+                                                            <div className="text-white">
+                                                                <div className="text-2xl font-bold mb-1">#{shot.number.toString().padStart(2, '0')}</div>
+                                                                <div className="text-xs opacity-70">
+                                                                    {aspectRatio}
+                                                                    {shot.storyboardPanelDimensions &&
+                                                                        ` (${shot.storyboardPanelDimensions.width}×${shot.storyboardPanelDimensions.height}px)`
+                                                                    }
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </>
                                                 ) : (
                                                     /* Placeholder if no panel */
-                                                    <>
+                                                    <div className="w-full h-full flex flex-col items-center justify-center text-center p-6">
                                                         <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mb-4 text-white/20">
                                                             <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                                                         </div>
                                                         <h3 className="text-white font-bold text-lg mb-1">Visual Reference</h3>
                                                         <p className="text-slate-400 text-sm font-medium">No storyboard panel yet</p>
-                                                    </>
+                                                    </div>
                                                 )}
                                             </div>
 
@@ -1154,7 +1194,10 @@ COMPOSITION RULES:
 
             <div className="pt-4 border-t border-slate-200 flex justify-between">
                 <button onClick={onBack} className="px-6 py-3 rounded-xl text-slate-500 hover:bg-slate-100 font-medium">Back</button>
-                <button onClick={onNext} disabled={!isNextStepReady} className="px-8 py-3 rounded-xl bg-indigo-600 text-white font-bold shadow-lg hover:bg-indigo-700 disabled:opacity-50">Go to Storyboard</button>
+                <div className="flex gap-3">
+                    <button onClick={handleSaveProject} className="px-6 py-3 rounded-xl bg-indigo-100 text-indigo-700 font-bold hover:bg-indigo-200">Save Project</button>
+                    <button onClick={onNext} disabled={!isNextStepReady} className="px-8 py-3 rounded-xl bg-indigo-600 text-white font-bold shadow-lg hover:bg-indigo-700 disabled:opacity-50">Complete</button>
+                </div>
             </div>
 
             {/* --- ASSET CREATION MODAL --- */}
