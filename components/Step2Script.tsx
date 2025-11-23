@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState, useMemo, useRef } from 'react';
-import { Scene, Pacing, Asset, AssetType } from '../types';
-import { generateScript, generateImage, editImage } from '../services/geminiService';
+import { Scene, Pacing, Asset, AssetType, AspectRatio } from '../types';
+import { generateScript, generateImage, editImage, generateMultimodalImage } from '../services/geminiService';
 
 interface Props {
     idea: string;
@@ -11,6 +11,8 @@ interface Props {
     script: Scene[];
     assets: Asset[];
     stylePrompt: string;
+    aspectRatio: AspectRatio;
+    onUpdateAspectRatio: (ratio: AspectRatio) => void;
     onUpdateScript: (script: Scene[]) => void;
     onUpdateAssets: (assets: Asset[]) => void;
     onBack: () => void;
@@ -144,16 +146,46 @@ const VisualAssetItem: React.FC<VisualAssetItemProps> = ({
 
 
 const Step2Script: React.FC<Props> = ({
-    idea, totalDuration, pacing, language, script, assets, stylePrompt,
-    onUpdateScript, onUpdateAssets, onBack, onNext, isNextStepReady
+    idea, totalDuration, pacing, language, script, assets, stylePrompt, aspectRatio,
+    onUpdateAspectRatio, onUpdateScript, onUpdateAssets, onBack, onNext, isNextStepReady
 }) => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [generatingSceneIds, setGeneratingSceneIds] = useState<string[]>([]);
+    const [previewStoryboardUri, setPreviewStoryboardUri] = useState<string | null>(null);
 
     // Layout Mode State
+    // Layout Mode State
     type LayoutMode = 'list' | 'grid-9-16' | 'grid-1-1' | 'grid-4-3' | 'grid-3-4';
-    const [layoutMode, setLayoutMode] = useState<LayoutMode>('list');
+
+    const getLayoutFromRatio = (ratio: AspectRatio): LayoutMode => {
+        switch (ratio) {
+            case '9:16': return 'grid-9-16';
+            case '1:1': return 'grid-1-1';
+            case '4:3': return 'grid-4-3';
+            case '3:4': return 'grid-3-4';
+            default: return 'list';
+        }
+    };
+
+    const [layoutMode, setLayoutMode] = useState<LayoutMode>(getLayoutFromRatio(aspectRatio));
     const [isLayoutMenuOpen, setIsLayoutMenuOpen] = useState(false);
+
+    useEffect(() => {
+        setLayoutMode(getLayoutFromRatio(aspectRatio));
+    }, [aspectRatio]);
+
+    const handleLayoutChange = (mode: LayoutMode) => {
+        setLayoutMode(mode);
+        let ratio: AspectRatio = '16:9';
+        switch (mode) {
+            case 'grid-9-16': ratio = '9:16'; break;
+            case 'grid-1-1': ratio = '1:1'; break;
+            case 'grid-4-3': ratio = '4:3'; break;
+            case 'grid-3-4': ratio = '3:4'; break;
+        }
+        onUpdateAspectRatio(ratio);
+    };
 
     // Flip State
     const [flippedShots, setFlippedShots] = useState<Record<string, boolean>>({});
@@ -238,7 +270,7 @@ const Step2Script: React.FC<Props> = ({
                 prompt = `${typeTerm} of ${asset.name}. ${asset.visuals.subject}, ${asset.visuals.details}. ${stylePrompt}. Flat illustration, Isolated on white background. --no text, typography, multiple views, collage, sketches, hands, other characters`;
             }
 
-            const uri = await generateImage(prompt, '1:1');
+            const uri = await generateImage(prompt, aspectRatio);
             const updatedAssetsComplete = assets.map(a => a.id === assetId ? { ...a, imageUri: uri, status: 'complete' } as Asset : a);
             onUpdateAssets(updatedAssetsComplete);
 
@@ -246,6 +278,99 @@ const Step2Script: React.FC<Props> = ({
             console.error("Quick gen failed", e);
             const updatedAssetsError = assets.map(a => a.id === assetId ? { ...a, status: 'error' } as Asset : a);
             onUpdateAssets(updatedAssetsError);
+        }
+    };
+
+    // --- Scene Storyboard Generation ---
+    const generateSceneStoryboard = async (group: SceneGroup) => {
+        if (generatingSceneIds.includes(group.sceneId)) return;
+
+        setGeneratingSceneIds(prev => [...prev, group.sceneId]);
+
+        try {
+            const shotCount = group.shots.length;
+            let gridSize = '2x2';
+            let numPanels = 'four';
+            let cols = 2;
+
+            if (shotCount > 9) { gridSize = '4x3'; numPanels = 'twelve'; cols = 4; }
+            else if (shotCount > 6) { gridSize = '3x3'; numPanels = 'nine'; cols = 3; }
+            else if (shotCount > 4) { gridSize = '3x2'; numPanels = 'six'; cols = 3; }
+
+            const separatorStyle = group.time.toUpperCase().includes('NIGHT') ? 'solid white lines' : 'solid black lines';
+
+            // 1. Collect Unique Assets Used in this Scene
+            const uniqueAssetIds = new Set<string>();
+            if (group.locationAssetId) uniqueAssetIds.add(group.locationAssetId);
+            group.shots.forEach(shot => {
+                (shot.usedAssetIds || []).forEach(id => uniqueAssetIds.add(id));
+            });
+
+            const sceneAssets = assets.filter(a => uniqueAssetIds.has(a.id));
+            const referenceAssets = sceneAssets.filter(a => !!a.imageUri);
+            const descriptionAssets = sceneAssets.filter(a => !a.imageUri);
+
+            // 2. Construct Prompt with References
+            let assetContext = "";
+
+            if (referenceAssets.length > 0) {
+                assetContext += "\n\nVISUAL REFERENCES (Use provided images):\n";
+                referenceAssets.forEach(a => {
+                    assetContext += `- ${a.name} (${a.type}): Use the provided reference image for this element.\n`;
+                });
+            }
+
+            if (descriptionAssets.length > 0) {
+                assetContext += "\n\nVISUAL DESCRIPTIONS (No reference image available):\n";
+                descriptionAssets.forEach(a => {
+                    assetContext += `- ${a.name} (${a.type}): ${a.visuals.subject}. ${a.visuals.details}\n`;
+                });
+            }
+
+            let panelsDesc = '';
+            group.shots.forEach((shot, idx) => {
+                if (idx >= 12) return; // Cap at 12
+                const r = Math.floor(idx / cols) + 1;
+                const c = (idx % cols) + 1;
+                panelsDesc += `Panel ${idx + 1}, R${r}C${c}: ${shot.shotType}, ${shot.cameraAngle}. ${shot.description}\n`;
+            });
+
+            const prompt = `Professional storyboard sheet template in a ${stylePrompt} illustration style. A rigid ${gridSize} grid layout arranged tightly together, maximizing canvas usage with no extra white space. All ${numPanels} slots hold identical ${aspectRatio} aspect ratio panels separated by distinct ${separatorStyle}.
+
+${assetContext}
+
+${panelsDesc}
+(Empty slots remain blank).`;
+
+            let uri: string;
+
+            if (referenceAssets.length > 0) {
+                // Prepare references for Multimodal Call
+                const references = referenceAssets.map(a => {
+                    // Extract base64 and mimeType from data URI
+                    const match = a.imageUri!.match(/^data:(.+);base64,(.+)$/);
+                    if (!match) return null;
+                    return {
+                        name: a.name,
+                        mimeType: match[1],
+                        data: match[2]
+                    };
+                }).filter(r => r !== null) as { name: string; mimeType: string; data: string }[];
+
+                uri = await generateMultimodalImage(prompt, references, aspectRatio);
+            } else {
+                uri = await generateImage(prompt, aspectRatio);
+            }
+
+            // Update all shots in the scene with the storyboard URI
+            const updatedScript = script.map(s => s.sceneId === group.sceneId ? { ...s, sceneStoryboardUri: uri } : s);
+            onUpdateScript(updatedScript);
+
+        } catch (e) {
+            console.error("Scene storyboard gen failed", e);
+            alert("Failed to generate scene storyboard");
+        } finally {
+            setGeneratingSceneIds(prev => prev.filter(id => id !== group.sceneId));
         }
     };
 
@@ -476,7 +601,7 @@ const Step2Script: React.FC<Props> = ({
                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mr-2">Format d'image</span>
                         <div className="flex gap-2">
                             <button
-                                onClick={() => setLayoutMode('list')}
+                                onClick={() => handleLayoutChange('list')}
                                 className={`px-3 py-2 rounded-lg text-sm font-bold border transition-all ${layoutMode === 'list'
                                     ? 'bg-slate-900 text-white border-slate-900 shadow-md'
                                     : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
@@ -485,7 +610,7 @@ const Step2Script: React.FC<Props> = ({
                                 16:9
                             </button>
                             <button
-                                onClick={() => setLayoutMode('grid-9-16')}
+                                onClick={() => handleLayoutChange('grid-9-16')}
                                 className={`px-3 py-2 rounded-lg text-sm font-bold border transition-all ${layoutMode === 'grid-9-16'
                                     ? 'bg-slate-900 text-white border-slate-900 shadow-md'
                                     : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
@@ -494,7 +619,7 @@ const Step2Script: React.FC<Props> = ({
                                 9:16
                             </button>
                             <button
-                                onClick={() => setLayoutMode('grid-1-1')}
+                                onClick={() => handleLayoutChange('grid-1-1')}
                                 className={`px-3 py-2 rounded-lg text-sm font-bold border transition-all ${layoutMode === 'grid-1-1'
                                     ? 'bg-slate-900 text-white border-slate-900 shadow-md'
                                     : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
@@ -503,7 +628,7 @@ const Step2Script: React.FC<Props> = ({
                                 1:1
                             </button>
                             <button
-                                onClick={() => setLayoutMode('grid-4-3')}
+                                onClick={() => handleLayoutChange('grid-4-3')}
                                 className={`px-3 py-2 rounded-lg text-sm font-bold border transition-all ${layoutMode === 'grid-4-3'
                                     ? 'bg-slate-900 text-white border-slate-900 shadow-md'
                                     : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
@@ -512,7 +637,7 @@ const Step2Script: React.FC<Props> = ({
                                 4:3
                             </button>
                             <button
-                                onClick={() => setLayoutMode('grid-3-4')}
+                                onClick={() => handleLayoutChange('grid-3-4')}
                                 className={`px-3 py-2 rounded-lg text-sm font-bold border transition-all ${layoutMode === 'grid-3-4'
                                     ? 'bg-slate-900 text-white border-slate-900 shadow-md'
                                     : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
@@ -552,8 +677,33 @@ const Step2Script: React.FC<Props> = ({
                         <div className="bg-slate-900 p-4 text-slate-200 flex flex-col gap-3">
 
                             <div className="flex items-start gap-4">
-                                <div className="flex-shrink-0 font-mono text-xl font-bold bg-slate-700 w-10 h-10 flex items-center justify-center rounded-lg text-emerald-400 border border-slate-600 mt-2">
-                                    {idx + 1}
+                                <div className="flex flex-col gap-2 items-center">
+                                    <div className="flex-shrink-0 font-mono text-xl font-bold bg-slate-700 w-10 h-10 flex items-center justify-center rounded-lg text-emerald-400 border border-slate-600 mt-2">
+                                        {idx + 1}
+                                    </div>
+                                    {/* Scene Storyboard Button */}
+                                    {group.shots[0]?.sceneStoryboardUri ? (
+                                        <button
+                                            onClick={() => setPreviewStoryboardUri(group.shots[0].sceneStoryboardUri!)}
+                                            className="w-10 h-10 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg flex items-center justify-center transition-colors shadow-lg shadow-indigo-900/20 border border-indigo-400"
+                                            title="View Scene Storyboard"
+                                        >
+                                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                        </button>
+                                    ) : (
+                                        <button
+                                            onClick={() => generateSceneStoryboard(group)}
+                                            disabled={generatingSceneIds.includes(group.sceneId)}
+                                            className="w-10 h-10 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-lg flex items-center justify-center transition-colors border border-slate-700"
+                                            title="Generate Scene Storyboard"
+                                        >
+                                            {generatingSceneIds.includes(group.sceneId) ? (
+                                                <span className="block w-5 h-5 animate-spin border-2 border-indigo-500 border-t-transparent rounded-full"></span>
+                                            ) : (
+                                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                            )}
+                                        </button>
+                                    )}
                                 </div>
 
                                 <div
@@ -840,25 +990,18 @@ const Step2Script: React.FC<Props> = ({
                                             </div>
 
                                             {/* BACK FACE */}
-                                            <div className={`absolute inset-0 backface-hidden rotate-y-180 bg-slate-800 rounded-xl overflow-hidden shadow-sm flex flex-col ${flippedShots[shot.id] ? '' : 'pointer-events-none'}`}>
-                                                <div className="bg-slate-900 px-4 py-2 flex items-center justify-between border-b border-slate-700">
-                                                    <span className="text-slate-400 font-bold text-sm">Shot #{shot.number} - Preview</span>
-                                                    <button
-                                                        onClick={() => toggleFlip(shot.id)}
-                                                        className="w-8 h-8 flex items-center justify-center bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors"
-                                                        title="Flip Back"
-                                                    >
-                                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-                                                    </button>
+                                            <div className={`absolute inset-0 backface-hidden rotate-y-180 bg-slate-900 rounded-xl overflow-hidden shadow-sm flex flex-col items-center justify-center text-center p-6 ${flippedShots[shot.id] ? '' : 'pointer-events-none'}`}>
+                                                <button
+                                                    onClick={() => toggleFlip(shot.id)}
+                                                    className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors"
+                                                >
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                                                </button>
+                                                <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mb-4 text-white/20">
+                                                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                                                 </div>
-                                                <div className="flex-1 flex items-center justify-center p-4">
-                                                    <div className="text-center">
-                                                        <div className="w-16 h-16 bg-slate-700 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-500">
-                                                            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                                                        </div>
-                                                        <p className="text-slate-400 text-sm font-medium">Image Generation Coming Soon</p>
-                                                    </div>
-                                                </div>
+                                                <h3 className="text-white font-bold text-lg mb-1">Visual Reference</h3>
+                                                <p className="text-slate-400 text-sm font-medium">Image Generation Coming Soon</p>
                                             </div>
 
                                         </div>
@@ -876,175 +1019,186 @@ const Step2Script: React.FC<Props> = ({
             </div>
 
             {/* --- ASSET CREATION MODAL --- */}
-            {
-                isAddingAsset && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
-                        <div className="bg-white rounded-xl p-6 w-96 shadow-xl">
-                            <h3 className="font-bold text-lg mb-4">Add New Asset</h3>
-                            <input autoFocus className="w-full border p-2 rounded mb-4 uppercase font-bold" placeholder="Asset Name" value={newAssetData.name} onChange={(e) => setNewAssetData(prev => ({ ...prev, name: e.target.value }))} />
-                            <div className="flex gap-2 mb-6">
-                                <button onClick={() => setNewAssetData(prev => ({ ...prev, type: AssetType.CHARACTER }))} className={`flex-1 py-2 rounded text-xs font-bold border ${newAssetData.type === AssetType.CHARACTER ? 'bg-indigo-100 border-indigo-300 text-indigo-700' : 'bg-white border-slate-200'}`}>Character</button>
-                                <button onClick={() => setNewAssetData(prev => ({ ...prev, type: AssetType.ITEM }))} className={`flex-1 py-2 rounded text-xs font-bold border ${newAssetData.type === AssetType.ITEM ? 'bg-amber-100 border-amber-300 text-amber-700' : 'bg-white border-slate-200'}`}>Item</button>
-                                <button onClick={() => setNewAssetData(prev => ({ ...prev, type: AssetType.LOCATION }))} className={`flex-1 py-2 rounded text-xs font-bold border ${newAssetData.type === AssetType.LOCATION ? 'bg-emerald-100 border-emerald-300 text-emerald-700' : 'bg-white border-slate-200'}`}>Location</button>
-                            </div>
-                            <div className="flex justify-end gap-2">
-                                <button onClick={() => setIsAddingAsset(false)} className="px-4 py-2 text-slate-500">Cancel</button>
-                                <button onClick={handleAddAsset} className="px-4 py-2 bg-indigo-600 text-white rounded font-bold">Add</button>
-                            </div>
+            {isAddingAsset && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
+                    <div className="bg-white rounded-xl p-6 w-96 shadow-xl">
+                        <h3 className="font-bold text-lg mb-4">Add New Asset</h3>
+                        <input autoFocus className="w-full border p-2 rounded mb-4 uppercase font-bold" placeholder="Asset Name" value={newAssetData.name} onChange={(e) => setNewAssetData(prev => ({ ...prev, name: e.target.value }))} />
+                        <div className="flex gap-2 mb-6">
+                            <button onClick={() => setNewAssetData(prev => ({ ...prev, type: AssetType.CHARACTER }))} className={`flex-1 py-2 rounded text-xs font-bold border ${newAssetData.type === AssetType.CHARACTER ? 'bg-indigo-100 border-indigo-300 text-indigo-700' : 'bg-white border-slate-200'}`}>Character</button>
+                            <button onClick={() => setNewAssetData(prev => ({ ...prev, type: AssetType.ITEM }))} className={`flex-1 py-2 rounded text-xs font-bold border ${newAssetData.type === AssetType.ITEM ? 'bg-amber-100 border-amber-300 text-amber-700' : 'bg-white border-slate-200'}`}>Item</button>
+                            <button onClick={() => setNewAssetData(prev => ({ ...prev, type: AssetType.LOCATION }))} className={`flex-1 py-2 rounded text-xs font-bold border ${newAssetData.type === AssetType.LOCATION ? 'bg-emerald-100 border-emerald-300 text-emerald-700' : 'bg-white border-slate-200'}`}>Location</button>
+                        </div>
+                        <div className="flex justify-end gap-2">
+                            <button onClick={() => setIsAddingAsset(false)} className="px-4 py-2 text-slate-500">Cancel</button>
+                            <button onClick={handleAddAsset} className="px-4 py-2 bg-indigo-600 text-white rounded font-bold">Add</button>
                         </div>
                     </div>
-                )
-            }
+                </div>
+            )}
 
             {/* --- INSPECTION / EDIT MODAL --- */}
-            {
-                activePreviewAsset && (
-                    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-4">
-                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl h-[80vh] overflow-hidden flex flex-col md:flex-row">
+            {activePreviewAsset && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl h-[80vh] overflow-hidden flex flex-col md:flex-row">
 
-                            {/* LEFT: IMAGE CANVAS */}
-                            <div className="w-full md:w-3/5 bg-slate-950 flex items-center justify-center relative overflow-hidden">
-                                {activePreviewAsset.imageUri ? (
-                                    <img
-                                        ref={imageRef}
-                                        src={activePreviewAsset.imageUri}
-                                        className="max-w-full max-h-full object-contain select-none"
-                                        alt="Preview"
-                                        onLoad={() => isInpaintingMode && setupCanvas()}
-                                    />
-                                ) : (
-                                    <div className="text-slate-500 text-center p-8">
-                                        <div className="text-6xl mb-4">?</div>
-                                        <p>No image generated yet.</p>
-                                        <button onClick={() => handleQuickGenerate(activePreviewAsset.id)} className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-lg">Generate Now</button>
+                        {/* LEFT: IMAGE CANVAS */}
+                        <div className="w-full md:w-3/5 bg-slate-950 flex items-center justify-center relative overflow-hidden">
+                            {activePreviewAsset.imageUri ? (
+                                <img
+                                    ref={imageRef}
+                                    src={activePreviewAsset.imageUri}
+                                    className="max-w-full max-h-full object-contain select-none"
+                                    alt="Preview"
+                                    onLoad={() => isInpaintingMode && setupCanvas()}
+                                />
+                            ) : (
+                                <div className="text-slate-500 text-center p-8">
+                                    <div className="text-6xl mb-4">?</div>
+                                    <p>No image generated yet.</p>
+                                    <button onClick={() => handleQuickGenerate(activePreviewAsset.id)} className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-lg">Generate Now</button>
+                                </div>
+                            )}
+
+                            {/* Inpainting Canvas Layer */}
+                            {isInpaintingMode && activePreviewAsset.imageUri && (
+                                <canvas
+                                    ref={canvasRef}
+                                    className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 cursor-crosshair touch-none"
+                                    onMouseDown={startDrawing}
+                                    onMouseMove={draw}
+                                    onMouseUp={stopDrawing}
+                                    onMouseLeave={stopDrawing}
+                                />
+                            )}
+
+                            {isInpaintingMode && (
+                                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-slate-900/80 text-white px-4 py-2 rounded-full text-sm font-bold pointer-events-none border border-white/20">
+                                    Draw to mask the area you want to change
+                                </div>
+                            )}
+                        </div>
+
+                        {/* RIGHT: CONTROLS */}
+                        <div className="w-full md:w-2/5 flex flex-col bg-white border-l border-slate-200">
+                            {/* Header */}
+                            <div className="p-6 border-b border-slate-100 flex justify-between items-start">
+                                <div>
+                                    <div className={`text-[10px] font-bold uppercase tracking-wider mb-1 ${activePreviewAsset.type === AssetType.CHARACTER ? 'text-indigo-600' :
+                                        activePreviewAsset.type === AssetType.LOCATION ? 'text-emerald-600' : 'text-amber-600'
+                                        }`}>
+                                        {activePreviewAsset.type}
                                     </div>
-                                )}
-
-                                {/* Inpainting Canvas Layer */}
-                                {isInpaintingMode && activePreviewAsset.imageUri && (
-                                    <canvas
-                                        ref={canvasRef}
-                                        className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 cursor-crosshair touch-none"
-                                        onMouseDown={startDrawing}
-                                        onMouseMove={draw}
-                                        onMouseUp={stopDrawing}
-                                        onMouseLeave={stopDrawing}
-                                    />
-                                )}
-
-                                {isInpaintingMode && (
-                                    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-slate-900/80 text-white px-4 py-2 rounded-full text-sm font-bold pointer-events-none border border-white/20">
-                                        Draw to mask the area you want to change
-                                    </div>
-                                )}
+                                    <h3 className="text-2xl font-bold text-slate-900 leading-none">{activePreviewAsset.name}</h3>
+                                </div>
+                                <button onClick={() => { setPreviewAssetId(null); setIsInpaintingMode(false); setEditPrompt(''); }} className="text-slate-400 hover:text-slate-600">
+                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                </button>
                             </div>
 
-                            {/* RIGHT: CONTROLS */}
-                            <div className="w-full md:w-2/5 flex flex-col bg-white border-l border-slate-200">
-                                {/* Header */}
-                                <div className="p-6 border-b border-slate-100 flex justify-between items-start">
-                                    <div>
-                                        <div className={`text-[10px] font-bold uppercase tracking-wider mb-1 ${activePreviewAsset.type === AssetType.CHARACTER ? 'text-indigo-600' :
-                                            activePreviewAsset.type === AssetType.LOCATION ? 'text-emerald-600' : 'text-amber-600'
-                                            }`}>
-                                            {activePreviewAsset.type}
-                                        </div>
-                                        <h3 className="text-2xl font-bold text-slate-900 leading-none">{activePreviewAsset.name}</h3>
-                                    </div>
-                                    <button onClick={() => { setPreviewAssetId(null); setIsInpaintingMode(false); setEditPrompt(''); }} className="text-slate-400 hover:text-slate-600">
-                                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                                    </button>
+                            {/* Body */}
+                            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+
+                                {/* Description */}
+                                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 text-sm text-slate-600 leading-relaxed">
+                                    {activePreviewAsset.visuals.subject}. {activePreviewAsset.visuals.details}.
                                 </div>
 
-                                {/* Body */}
-                                <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                                {/* Edit Tools */}
+                                <div>
+                                    <div className="flex justify-between items-center mb-3">
+                                        <h4 className="font-bold text-slate-900 flex items-center gap-2">
+                                            <svg className="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                                            Edit Asset
+                                        </h4>
 
-                                    {/* Description */}
-                                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 text-sm text-slate-600 leading-relaxed">
-                                        {activePreviewAsset.visuals.subject}. {activePreviewAsset.visuals.details}.
-                                    </div>
-
-                                    {/* Edit Tools */}
-                                    <div>
-                                        <div className="flex justify-between items-center mb-3">
-                                            <h4 className="font-bold text-slate-900 flex items-center gap-2">
-                                                <svg className="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                                                Edit Asset
-                                            </h4>
-
-                                            {/* Magic Edit Toggle */}
-                                            {activePreviewAsset.imageUri && (
-                                                <button
-                                                    onClick={() => {
-                                                        const next = !isInpaintingMode;
-                                                        setIsInpaintingMode(next);
-                                                        if (!next) setEditPrompt(''); // clear prompt if turning off? Optional.
-                                                    }}
-                                                    className={`text-xs font-bold px-3 py-1.5 rounded-full transition-colors border flex items-center gap-2 ${isInpaintingMode
-                                                        ? 'bg-indigo-600 text-white border-indigo-600'
-                                                        : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-300'
-                                                        }`}
-                                                >
-                                                    {isInpaintingMode && <span className="animate-pulse w-2 h-2 bg-white rounded-full"></span>}
-                                                    Magic Inpainting {isInpaintingMode ? 'ON' : 'OFF'}
-                                                </button>
-                                            )}
-                                        </div>
-
-                                        <textarea
-                                            value={editPrompt}
-                                            onChange={(e) => setEditPrompt(e.target.value)}
-                                            placeholder={isInpaintingMode ? "Describe what to fill in the masked area (e.g. 'Blue Sunglasses')..." : "Describe changes to the whole image (e.g. 'Make it night time')..."}
-                                            className="w-full h-32 p-3 rounded-xl border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-none text-sm"
-                                        />
-
-                                        {isInpaintingMode && (
-                                            <div className="mt-3">
-                                                <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Brush Size</label>
-                                                <input
-                                                    type="range"
-                                                    min="5" max="100"
-                                                    value={brushSize}
-                                                    onChange={(e) => setBrushSize(parseInt(e.target.value))}
-                                                    className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
-                                                />
-                                            </div>
+                                        {/* Magic Edit Toggle */}
+                                        {activePreviewAsset.imageUri && (
+                                            <button
+                                                onClick={() => {
+                                                    const next = !isInpaintingMode;
+                                                    setIsInpaintingMode(next);
+                                                    if (!next) setEditPrompt(''); // clear prompt if turning off? Optional.
+                                                }}
+                                                className={`text-xs font-bold px-3 py-1.5 rounded-full transition-colors border flex items-center gap-2 ${isInpaintingMode
+                                                    ? 'bg-indigo-600 text-white border-indigo-600'
+                                                    : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-300'
+                                                    }`}
+                                            >
+                                                {isInpaintingMode && <span className="animate-pulse w-2 h-2 bg-white rounded-full"></span>}
+                                                Magic Inpainting {isInpaintingMode ? 'ON' : 'OFF'}
+                                            </button>
                                         )}
                                     </div>
 
-                                    <div className="pt-4 border-t border-slate-100">
-                                        <button
-                                            onClick={() => handleDeleteAsset(activePreviewAsset.id)}
-                                            className="text-red-500 text-sm font-bold hover:text-red-700 flex items-center gap-2"
-                                        >
-                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                            Delete Asset Permanently
-                                        </button>
-                                    </div>
+                                    <textarea
+                                        value={editPrompt}
+                                        onChange={(e) => setEditPrompt(e.target.value)}
+                                        placeholder={isInpaintingMode ? "Describe what to fill in the masked area (e.g. 'Blue Sunglasses')..." : "Describe changes to the whole image (e.g. 'Make it night time')..."}
+                                        className="w-full h-32 p-3 rounded-xl border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-none text-sm"
+                                    />
+
+                                    {isInpaintingMode && (
+                                        <div className="mt-3">
+                                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Brush Size</label>
+                                            <input
+                                                type="range"
+                                                min="5" max="100"
+                                                value={brushSize}
+                                                onChange={(e) => setBrushSize(parseInt(e.target.value))}
+                                                className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                                            />
+                                        </div>
+                                    )}
                                 </div>
 
-                                {/* Footer */}
-                                <div className="p-6 border-t border-slate-100 flex justify-end gap-3 bg-slate-50">
+                                <div className="pt-4 border-t border-slate-100">
                                     <button
-                                        onClick={() => { setPreviewAssetId(null); setIsInpaintingMode(false); }}
-                                        className="px-4 py-2 rounded-lg font-bold text-slate-500 hover:bg-slate-200"
+                                        onClick={() => handleDeleteAsset(activePreviewAsset.id)}
+                                        className="text-red-500 text-sm font-bold hover:text-red-700 flex items-center gap-2"
                                     >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        onClick={handleEditAssetImage}
-                                        disabled={isEditing || !editPrompt || !activePreviewAsset.imageUri}
-                                        className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-bold shadow-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                                    >
-                                        {isEditing && <span className="animate-spin w-4 h-4 border-2 border-white/30 border-t-white rounded-full"></span>}
-                                        Apply Changes
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                        Delete Asset Permanently
                                     </button>
                                 </div>
                             </div>
+
+                            {/* Footer */}
+                            <div className="p-6 border-t border-slate-100 flex justify-end gap-3 bg-slate-50">
+                                <button
+                                    onClick={() => { setPreviewAssetId(null); setIsInpaintingMode(false); }}
+                                    className="px-4 py-2 rounded-lg font-bold text-slate-500 hover:bg-slate-200"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleEditAssetImage}
+                                    disabled={isEditing || !editPrompt || !activePreviewAsset.imageUri}
+                                    className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-bold shadow-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                >
+                                    {isEditing && <span className="animate-spin w-4 h-4 border-2 border-white/30 border-t-white rounded-full"></span>}
+                                    Apply Changes
+                                </button>
+                            </div>
                         </div>
                     </div>
-                )
-            }
+                </div>
+            )}
+
+            {/* Storyboard Preview Modal */}
+            {previewStoryboardUri && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-8" onClick={() => setPreviewStoryboardUri(null)}>
+                    <div className="relative max-w-full max-h-full" onClick={e => e.stopPropagation()}>
+                        <img src={previewStoryboardUri} alt="Scene Storyboard" className="max-w-full max-h-[90vh] rounded-lg shadow-2xl" />
+                        <button
+                            onClick={() => setPreviewStoryboardUri(null)}
+                            className="absolute -top-4 -right-4 w-8 h-8 bg-white text-slate-900 rounded-full flex items-center justify-center shadow-lg hover:bg-slate-100"
+                        >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

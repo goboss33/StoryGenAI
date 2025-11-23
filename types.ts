@@ -38,6 +38,7 @@ export interface Scene {
   imageUri?: string;
   videoUri?: string;
   isGenerating?: boolean;
+  sceneStoryboardUri?: string;
 }
 
 export interface AssetMapping {

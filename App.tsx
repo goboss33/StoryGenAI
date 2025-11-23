@@ -132,7 +132,7 @@ const App: React.FC = () => {
           {state.step === 1 && (
             <Step2Style
               stylePrompt={state.stylePrompt}
-              aspectRatio={state.aspectRatio}
+
               onUpdate={updateState}
               onNext={nextStep}
               onBack={prevStep}
@@ -150,6 +150,8 @@ const App: React.FC = () => {
               script={state.script}
               assets={state.assets}
               stylePrompt={state.stylePrompt}
+              aspectRatio={state.aspectRatio}
+              onUpdateAspectRatio={(ratio) => updateState({ aspectRatio: ratio })}
               onUpdateScript={(script) => updateState({ script })}
               onUpdateAssets={(assets) => updateState({ assets })}
               onBack={prevStep}
@@ -211,8 +213,8 @@ const App: React.FC = () => {
                   <div className="flex items-center gap-2">
                     <span className="text-slate-600 text-[10px]">{new Date(log.timestamp).toLocaleTimeString()}</span>
                     <span className={`px-1.5 rounded-sm font-bold text-[9px] uppercase ${log.type === 'req' ? 'bg-blue-900 text-blue-300' :
-                        log.type === 'res' ? 'bg-emerald-900 text-emerald-300' :
-                          log.type === 'error' ? 'bg-red-900 text-red-300' : 'bg-slate-800 text-slate-300'
+                      log.type === 'res' ? 'bg-emerald-900 text-emerald-300' :
+                        log.type === 'error' ? 'bg-red-900 text-red-300' : 'bg-slate-800 text-slate-300'
                       }`}>{log.type}</span>
                     <span className="text-slate-300 font-bold">{log.title}</span>
                   </div>
