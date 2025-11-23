@@ -386,7 +386,7 @@ export const extractAssets = async (script: Scene[]): Promise<{ assets: Asset[],
 // --- 3. Generate Image (Gemini 3 Pro) ---
 export const generateImage = async (
   prompt: string,
-  aspectRatio: string // e.g. "16:9", "1:1"
+  aspectRatio?: string // Optional: e.g. "16:9", "1:1". If not provided, AI decides format
 ): Promise<string> => {
   try {
     logDebug('req', 'Generate Image (Gemini 3 Pro)', { prompt, aspectRatio });
@@ -394,15 +394,18 @@ export const generateImage = async (
     if (!prompt || prompt.trim().length === 0) throw new Error("Prompt cannot be empty");
     const cleanPrompt = prompt.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
 
+    const config: any = {
+      responseModalities: [Modality.IMAGE]
+    };
+
+    if (aspectRatio) {
+      config.imageConfig = { aspectRatio: aspectRatio as any };
+    }
+
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-image-preview',
       contents: { parts: [{ text: cleanPrompt }] },
-      config: {
-        responseModalities: [Modality.IMAGE],
-        imageConfig: {
-          aspectRatio: aspectRatio as any
-        }
-      },
+      config,
     });
 
     // Track Usage (Image Cost: $0.134)
@@ -523,7 +526,7 @@ export const generateVideo = async (imageUri: string, prompt: string, aspectRati
 export const generateMultimodalImage = async (
   prompt: string,
   references: { name: string; data: string; mimeType: string }[],
-  aspectRatio: string
+  aspectRatio?: string // Optional: e.g. "16:9", "1:1". If not provided, AI decides format
 ): Promise<string> => {
   try {
     logDebug('req', 'Generate Multimodal Image (Gemini 3 Pro)', { prompt, refs: references.map(r => r.name), aspectRatio });
@@ -533,15 +536,18 @@ export const generateMultimodalImage = async (
     });
     parts.push({ text: prompt });
 
+    const config: any = {
+      responseModalities: [Modality.IMAGE]
+    };
+
+    if (aspectRatio) {
+      config.imageConfig = { aspectRatio: aspectRatio as any };
+    }
+
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-image-preview',
       contents: { parts },
-      config: {
-        responseModalities: [Modality.IMAGE],
-        imageConfig: {
-          aspectRatio: aspectRatio as any
-        }
-      }
+      config
     });
 
     // Track Usage (Image Cost: $0.134)

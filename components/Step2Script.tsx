@@ -153,6 +153,7 @@ const Step2Script: React.FC<Props> = ({
     const [error, setError] = useState('');
     const [generatingSceneIds, setGeneratingSceneIds] = useState<string[]>([]);
     const [previewStoryboardUri, setPreviewStoryboardUri] = useState<string | null>(null);
+    const [isSplittingStoryboard, setIsSplittingStoryboard] = useState(false);
 
     // Layout Mode State
     // Layout Mode State
@@ -297,8 +298,6 @@ const Step2Script: React.FC<Props> = ({
             else if (shotCount > 6) { gridSize = '3x3'; numPanels = 'nine'; cols = 3; }
             else if (shotCount > 4) { gridSize = '3x2'; numPanels = 'six'; cols = 3; }
 
-            const separatorStyle = group.time.toUpperCase().includes('NIGHT') ? 'solid white lines' : 'solid black lines';
-
             // 1. Collect Unique Assets Used in this Scene
             const uniqueAssetIds = new Set<string>();
             if (group.locationAssetId) uniqueAssetIds.add(group.locationAssetId);
@@ -335,12 +334,20 @@ const Step2Script: React.FC<Props> = ({
                 panelsDesc += `Panel ${idx + 1}, R${r}C${c}: ${shot.shotType}, ${shot.cameraAngle}. ${shot.description}\n`;
             });
 
-            const prompt = `Professional storyboard sheet template in a ${stylePrompt} illustration style. A rigid ${gridSize} grid layout arranged tightly together, maximizing canvas usage with no extra white space. All ${numPanels} slots hold identical ${aspectRatio} aspect ratio panels separated by distinct ${separatorStyle}.
+
+            const prompt = `A seamless ${gridSize} split-screen composite illustration in a ${stylePrompt} style. The image acts as a single full-bleed canvas divided into distinct panels that touch edge-to-edge.
 
 ${assetContext}
 
+SCENE NARRATIVE (Reading order):
 ${panelsDesc}
-(Empty slots remain blank).`;
+
+COMPOSITION RULES:
+- Zero-gap construction: The panels are strictly adjacent and share common edges.
+- Full Bleed: The composition fills the entire image frame with no outer background or margins.
+- Aspect Ratio: Each section maintains a ${aspectRatio} ratio.
+- Empty slots remain blank with solid background color`;
+
 
             let uri: string;
 
@@ -357,9 +364,11 @@ ${panelsDesc}
                     };
                 }).filter(r => r !== null) as { name: string; mimeType: string; data: string }[];
 
-                uri = await generateMultimodalImage(prompt, references, aspectRatio);
+                // Let the AI decide the optimal sheet format based on the grid layout
+                uri = await generateMultimodalImage(prompt, references);
             } else {
-                uri = await generateImage(prompt, aspectRatio);
+                // Let the AI decide the optimal sheet format based on the grid layout
+                uri = await generateImage(prompt);
             }
 
             // Update all shots in the scene with the storyboard URI
@@ -371,6 +380,123 @@ ${panelsDesc}
             alert("Failed to generate scene storyboard");
         } finally {
             setGeneratingSceneIds(prev => prev.filter(id => id !== group.sceneId));
+        }
+    };
+
+    // --- Split Storyboard into Individual Shots ---
+    const splitStoryboardIntoShots = async () => {
+        if (!previewStoryboardUri) return;
+
+        setIsSplittingStoryboard(true);
+
+        try {
+            // Find the scene group corresponding to this storyboard
+            const sceneGroup = sceneGroups.find(g =>
+                g.shots[0]?.sceneStoryboardUri === previewStoryboardUri
+            );
+            if (!sceneGroup) {
+                throw new Error('Scene group not found for this storyboard');
+            }
+
+            const shotCount = sceneGroup.shots.length;
+
+            // Determine grid layout (same logic as generateSceneStoryboard)
+            let rows = 2, cols = 2;
+            if (shotCount > 9) { rows = 3; cols = 4; }
+            else if (shotCount > 6) { rows = 3; cols = 3; }
+            else if (shotCount > 4) { rows = 2; cols = 3; }
+
+            // Load the image
+            const img = new Image();
+            img.crossOrigin = 'anonymous'; // Enable CORS if needed
+            img.src = previewStoryboardUri;
+
+            await new Promise((resolve, reject) => {
+                img.onload = resolve;
+                img.onerror = reject;
+            });
+
+            // Create canvas for extraction
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            if (!ctx) throw new Error('Canvas not supported');
+
+            // Calculate cell dimensions
+            const cellWidth = Math.floor(img.width / cols);
+            const cellHeight = Math.floor(img.height / rows);
+
+            // Crop margin to remove separator lines
+            const cropMargin = 5;
+
+            // Calculate target aspect ratio from aspectRatio string (e.g., "16:9")
+            const [ratioW, ratioH] = aspectRatio.split(':').map(Number);
+            const targetRatio = ratioW / ratioH;
+
+            // Extract each panel
+            const panelUris: string[] = [];
+            for (let i = 0; i < Math.min(shotCount, rows * cols); i++) {
+                const row = Math.floor(i / cols);
+                const col = i % cols;
+
+                // Crop dimensions (remove 5px from each edge)
+                const croppedWidth = cellWidth - (cropMargin * 2);
+                const croppedHeight = cellHeight - (cropMargin * 2);
+
+                // Calculate final dimensions that respect the exact aspect ratio
+                let finalWidth = croppedWidth;
+                let finalHeight = croppedHeight;
+
+                const currentRatio = croppedWidth / croppedHeight;
+
+                if (currentRatio > targetRatio) {
+                    // Image is too wide, adjust width to match target ratio
+                    finalWidth = Math.floor(croppedHeight * targetRatio);
+                } else if (currentRatio < targetRatio) {
+                    // Image is too tall, adjust height to match target ratio
+                    finalHeight = Math.floor(croppedWidth / targetRatio);
+                }
+
+                // Set canvas to final size (exact aspect ratio)
+                canvas.width = finalWidth;
+                canvas.height = finalHeight;
+
+                // Clear canvas
+                ctx.clearRect(0, 0, finalWidth, finalHeight);
+
+                // Draw the cropped panel, then scale to exact aspect ratio
+                ctx.drawImage(
+                    img,
+                    col * cellWidth + cropMargin,    // Source x (skip 5px from left)
+                    row * cellHeight + cropMargin,   // Source y (skip 5px from top)
+                    croppedWidth,                    // Source width
+                    croppedHeight,                   // Source height
+                    0, 0,                            // Dest x, y
+                    finalWidth,                      // Dest width (adjusted for exact ratio)
+                    finalHeight                      // Dest height (adjusted for exact ratio)
+                );
+
+                // Convert to data URI
+                const dataUri = canvas.toDataURL('image/png');
+                panelUris.push(dataUri);
+            }
+
+            // Assign panels to shots in order
+            const updatedScript = script.map(shot => {
+                const shotIndex = sceneGroup.shots.findIndex(s => s.id === shot.id);
+                if (shotIndex !== -1 && shotIndex < panelUris.length) {
+                    return { ...shot, storyboardPanelUri: panelUris[shotIndex] };
+                }
+                return shot;
+            });
+
+            onUpdateScript(updatedScript);
+            setPreviewStoryboardUri(null); // Close modal
+
+        } catch (error) {
+            console.error('Failed to split storyboard:', error);
+            alert('Échec de la découpe du storyboard');
+        } finally {
+            setIsSplittingStoryboard(false);
         }
     };
 
@@ -993,15 +1119,28 @@ ${panelsDesc}
                                             <div className={`absolute inset-0 backface-hidden rotate-y-180 bg-slate-900 rounded-xl overflow-hidden shadow-sm flex flex-col items-center justify-center text-center p-6 ${flippedShots[shot.id] ? '' : 'pointer-events-none'}`}>
                                                 <button
                                                     onClick={() => toggleFlip(shot.id)}
-                                                    className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors"
+                                                    className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors z-10"
                                                 >
                                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                                                 </button>
-                                                <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mb-4 text-white/20">
-                                                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                                                </div>
-                                                <h3 className="text-white font-bold text-lg mb-1">Visual Reference</h3>
-                                                <p className="text-slate-400 text-sm font-medium">Image Generation Coming Soon</p>
+
+                                                {shot.storyboardPanelUri ? (
+                                                    /* Display storyboard panel if available */
+                                                    <img
+                                                        src={shot.storyboardPanelUri}
+                                                        alt={`Storyboard panel for shot ${shot.number}`}
+                                                        className="w-full h-full object-contain"
+                                                    />
+                                                ) : (
+                                                    /* Placeholder if no panel */
+                                                    <>
+                                                        <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mb-4 text-white/20">
+                                                            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                                        </div>
+                                                        <h3 className="text-white font-bold text-lg mb-1">Visual Reference</h3>
+                                                        <p className="text-slate-400 text-sm font-medium">No storyboard panel yet</p>
+                                                    </>
+                                                )}
                                             </div>
 
                                         </div>
@@ -1190,12 +1329,39 @@ ${panelsDesc}
                 <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-8" onClick={() => setPreviewStoryboardUri(null)}>
                     <div className="relative max-w-full max-h-full" onClick={e => e.stopPropagation()}>
                         <img src={previewStoryboardUri} alt="Scene Storyboard" className="max-w-full max-h-[90vh] rounded-lg shadow-2xl" />
-                        <button
-                            onClick={() => setPreviewStoryboardUri(null)}
-                            className="absolute -top-4 -right-4 w-8 h-8 bg-white text-slate-900 rounded-full flex items-center justify-center shadow-lg hover:bg-slate-100"
-                        >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                        </button>
+
+                        {/* Control Buttons */}
+                        <div className="absolute top-4 right-4 flex gap-2">
+                            <button
+                                onClick={splitStoryboardIntoShots}
+                                disabled={isSplittingStoryboard}
+                                className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-bold shadow-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2 transition-colors"
+                                title="Découper le storyboard en plans individuels"
+                            >
+                                {isSplittingStoryboard ? (
+                                    <>
+                                        <span className="animate-spin w-4 h-4 border-2 border-white/30 border-t-white rounded-full"></span>
+                                        Découpe...
+                                    </>
+                                ) : (
+                                    <>
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+                                        </svg>
+                                        Découper en Plans
+                                    </>
+                                )}
+                            </button>
+
+                            <button
+                                onClick={() => setPreviewStoryboardUri(null)}
+                                className="w-10 h-10 bg-white text-slate-900 rounded-full flex items-center justify-center shadow-lg hover:bg-slate-100 transition-colors"
+                            >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
