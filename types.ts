@@ -29,6 +29,7 @@ export interface Scene {
 
   // 5. Post/Trans
   transition: string;
+  veoMotionPrompt: string; // Instructions spécifiques pour l'animation vidéo (Veo)
 
   // Relational Data
   locationAssetId?: string; // Link to the Master Location Asset

@@ -117,7 +117,13 @@ export const generateScript = async (
               1. **Blocking** (Character's position in the frame, e.g., 'Center', 'Far left').
               2. **Body Language** (Specific pose or gesture).
               3. **Eyeline** (Where the character is looking, e.g., 'Looking off-camera right').
-
+          - **Veo Motion Prompt:** You MUST generate a technical instruction strictly for Image-to-Video generation.
+              FORMAT: [Camera Movement] + [Main Subject Action] + [Speed/Dynamics].
+              RULES:
+              - Do NOT describe static visual details (colors, clothes), only MOVEMENT and PHYSICS.
+              - Use cinematography terms: Pan, Tilt, Dolly, Tracking Shot, Static.
+              - Describe physics: 'Hair blowing', 'Smoke rising', 'Blinking', 'Running'.
+              - Example: 'Slow Dolly In. Character turns head left. Background blur increases.'
           - **Dialogue:** (Text or "" if silent)
           - **Audio/SFX/Music:** (Text or "" if silent)
           - **Camera Movement:** (e.g. "Static", "Pan", "Tracking")
@@ -182,13 +188,14 @@ export const generateScript = async (
                     compositionTags: { type: Type.ARRAY, items: { type: Type.STRING } }, // NEW ARRAY FIELD
                     duration: { type: Type.NUMBER },
                     action: { type: Type.STRING },
+                    veoMotionPrompt: { type: Type.STRING },
                     dialogue: { type: Type.STRING },
                     sfx: { type: Type.STRING },
                     music: { type: Type.STRING },
                     castIds: { type: Type.ARRAY, items: { type: Type.STRING } },
                     itemIds: { type: Type.ARRAY, items: { type: Type.STRING } }
                   },
-                  required: ["shotType", "cameraAngle", "movement", "compositionTags", "duration", "action", "dialogue", "sfx", "music", "castIds", "itemIds"]
+                  required: ["shotType", "cameraAngle", "movement", "compositionTags", "duration", "action", "veoMotionPrompt", "dialogue", "sfx", "music", "castIds", "itemIds"]
                 }
               }
             },
@@ -357,6 +364,7 @@ export const generateScript = async (
           cameraMovement: shot.movement || "Static",
           compositionTags: shot.compositionTags || [], // Map New Field
           description: shot.action || "",
+          veoMotionPrompt: shot.veoMotionPrompt || "",
           lighting: seq.lighting || "Natural",
           weather: seq.weather || "Clear",
           dialogue: shot.dialogue || "",

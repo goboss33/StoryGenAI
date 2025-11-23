@@ -1044,6 +1044,18 @@ COMPOSITION RULES:
                                                             <label className="text-[11px] font-extrabold text-slate-900 uppercase tracking-widest mb-1.5 block">Action</label>
                                                             <textarea className="w-full p-3 border border-slate-200 rounded-lg text-sm text-slate-800 font-medium leading-relaxed shadow-sm focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 outline-none min-h-[80px] resize-y" value={shot.description} onChange={(e) => updateShot(shot.id, { description: e.target.value })} />
                                                         </div>
+                                                        <div className="mt-3">
+                                                            <label className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-1 flex items-center gap-1">
+                                                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                                                Animation (Veo)
+                                                            </label>
+                                                            <textarea
+                                                                className="w-full p-2 border border-indigo-100 bg-indigo-50/30 rounded-lg text-xs text-slate-700 font-medium focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 outline-none resize-y min-h-[60px]"
+                                                                placeholder="Décrivez le mouvement (ex: Slow pan right...)"
+                                                                value={shot.veoMotionPrompt || ''}
+                                                                onChange={(e) => updateShot(shot.id, { veoMotionPrompt: e.target.value })}
+                                                            />
+                                                        </div>
                                                         <div className="grid grid-cols-1 gap-3">
                                                             <div>
                                                                 <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 flex items-center gap-1">Dialogue</label>
