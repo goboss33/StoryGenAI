@@ -2,6 +2,7 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { Scene, Pacing, Asset, AssetType, AspectRatio } from '../types';
 import { generateScript, generateImage, editImage, generateMultimodalImage, generatePlanVideo, extendVideo } from '../services/geminiService';
+import { generateReplicateVideo } from '../services/replicateService';
 
 interface Props {
     idea: string;
@@ -245,7 +246,7 @@ const Step2Script: React.FC<Props> = ({
 
     const VIDEO_MODELS = [
         { id: 'veo-3.1-generate-preview', name: 'Veo 3.1 Preview (Google)', enabled: true },
-        { id: 'veo-3.1-fast', name: 'Veo 3.1 Fast (Replicate)', enabled: false },
+        { id: 'veo-3.1-fast', name: 'Veo 3.1 Fast (Replicate)', enabled: true },
         { id: 'veo-3.1', name: 'Veo 3.1 (Replicate)', enabled: false },
         { id: 'sora-2', name: 'Sora 2 (Replicate)', enabled: false },
         { id: 'sora-2-pro', name: 'Sora 2 Pro (Replicate)', enabled: false },
@@ -712,20 +713,34 @@ COMPOSITION RULES:
         try {
             let result: { localUri: string, remoteUri: string };
 
-            // Smart Chaining: Use previous shot's video if available
-            if (previousShot && previousShot.remoteVideoUri) {
-                console.log(`Chaining: Extending Shot ${previousShot.number} for Shot ${shot.number}`);
-                const prompt = shot.veoMotionPrompt || shot.description;
-                result = await extendVideo(previousShot.remoteVideoUri, prompt, aspectRatio);
-            } else {
-                // Initial Generation (First shot or broken chain)
-                console.log(`Generating fresh video for Shot ${shot.number}`);
+            // Check selected model
+            if (selectedVideoModel === 'veo-3.1-fast') {
+                console.log(`Generating video with Replicate (veo-3.1-fast) for Shot ${shot.number}`);
                 const imageSource = shot.storyboardPanelUri || shot.imageUri;
-                if (!imageSource) {
-                    throw new Error("Shot needs an image (or storyboard panel) to generate video.");
-                }
+                if (!imageSource) throw new Error("Shot needs an image to generate video.");
                 const prompt = shot.veoMotionPrompt || shot.description;
-                result = await generatePlanVideo(imageSource, prompt, aspectRatio, shot.duration);
+
+                // Replicate doesn't support "extension" in the same way yet (or we treat it as fresh gen for now)
+                result = await generateReplicateVideo(imageSource, prompt, aspectRatio);
+
+            } else {
+                // Default: Google Veo (Gemini)
+
+                // Smart Chaining: Use previous shot's video if available AND we are using Google model
+                if (previousShot && previousShot.remoteVideoUri && selectedVideoModel === 'veo-3.1-generate-preview') {
+                    console.log(`Chaining: Extending Shot ${previousShot.number} for Shot ${shot.number}`);
+                    const prompt = shot.veoMotionPrompt || shot.description;
+                    result = await extendVideo(previousShot.remoteVideoUri, prompt, aspectRatio);
+                } else {
+                    // Initial Generation
+                    console.log(`Generating fresh video for Shot ${shot.number} (Google)`);
+                    const imageSource = shot.storyboardPanelUri || shot.imageUri;
+                    if (!imageSource) {
+                        throw new Error("Shot needs an image (or storyboard panel) to generate video.");
+                    }
+                    const prompt = shot.veoMotionPrompt || shot.description;
+                    result = await generatePlanVideo(imageSource, prompt, aspectRatio, shot.duration);
+                }
             }
 
             updateShot(shotId, { videoUri: result.localUri, remoteVideoUri: result.remoteUri });
