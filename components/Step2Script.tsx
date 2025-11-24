@@ -238,6 +238,19 @@ const Step2Script: React.FC<Props> = ({
         }
     }, [isInpaintingMode, previewAssetId]);
 
+    // --- Shot Video Generation Logic ---
+    const [generatingShotIds, setGeneratingShotIds] = useState<string[]>([]);
+    const [playingVideoId, setPlayingVideoId] = useState<string | null>(null);
+    const [selectedVideoModel, setSelectedVideoModel] = useState<string>('veo-3.1-generate-preview');
+
+    const VIDEO_MODELS = [
+        { id: 'veo-3.1-generate-preview', name: 'Veo 3.1 Preview (Google)', enabled: true },
+        { id: 'veo-3.1-fast', name: 'Veo 3.1 Fast (Replicate)', enabled: false },
+        { id: 'veo-3.1', name: 'Veo 3.1 (Replicate)', enabled: false },
+        { id: 'sora-2', name: 'Sora 2 (Replicate)', enabled: false },
+        { id: 'sora-2-pro', name: 'Sora 2 Pro (Replicate)', enabled: false },
+    ];
+
     const generate = async () => {
         setLoading(true);
         setError('');
@@ -680,6 +693,49 @@ COMPOSITION RULES:
         onUpdateAssets([...assets, newAsset]);
         setIsAddingAsset(false);
         setNewAssetData({ name: '', type: AssetType.CHARACTER });
+    };
+
+    const handleGenerateShotVideo = async (shotId: string, sceneId: string) => {
+        if (generatingShotIds.includes(shotId)) return;
+
+        const sceneGroup = sceneGroups.find(g => g.sceneId === sceneId);
+        if (!sceneGroup) return;
+
+        const shotIndex = sceneGroup.shots.findIndex(s => s.id === shotId);
+        if (shotIndex === -1) return;
+
+        const shot = sceneGroup.shots[shotIndex];
+        const previousShot = shotIndex > 0 ? sceneGroup.shots[shotIndex - 1] : null;
+
+        setGeneratingShotIds(prev => [...prev, shotId]);
+
+        try {
+            let result: { localUri: string, remoteUri: string };
+
+            // Smart Chaining: Use previous shot's video if available
+            if (previousShot && previousShot.remoteVideoUri) {
+                console.log(`Chaining: Extending Shot ${previousShot.number} for Shot ${shot.number}`);
+                const prompt = shot.veoMotionPrompt || shot.description;
+                result = await extendVideo(previousShot.remoteVideoUri, prompt, aspectRatio);
+            } else {
+                // Initial Generation (First shot or broken chain)
+                console.log(`Generating fresh video for Shot ${shot.number}`);
+                const imageSource = shot.storyboardPanelUri || shot.imageUri;
+                if (!imageSource) {
+                    throw new Error("Shot needs an image (or storyboard panel) to generate video.");
+                }
+                const prompt = shot.veoMotionPrompt || shot.description;
+                result = await generatePlanVideo(imageSource, prompt, aspectRatio, shot.duration);
+            }
+
+            updateShot(shotId, { videoUri: result.localUri, remoteVideoUri: result.remoteUri });
+
+        } catch (e: any) {
+            console.error("Shot video generation failed", e);
+            alert(`Failed to generate video: ${e.message || e}`);
+        } finally {
+            setGeneratingShotIds(prev => prev.filter(id => id !== shotId));
+        }
     };
 
     const handleGenerateSceneVideo = async (group: SceneGroup) => {
@@ -1224,14 +1280,74 @@ COMPOSITION RULES:
                                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                                                 </button>
 
-                                                {shot.storyboardPanelUri ? (
-                                                    /* Display storyboard panel if available */
+                                                {shot.storyboardPanelUri || shot.imageUri ? (
+                                                    /* Display storyboard panel or image */
                                                     <>
-                                                        <img
-                                                            src={shot.storyboardPanelUri}
-                                                            alt={`Storyboard panel for shot ${shot.number}`}
-                                                            className="w-full h-full object-cover"
-                                                        />
+                                                        {playingVideoId === shot.id && shot.videoUri ? (
+                                                            <video
+                                                                src={shot.videoUri}
+                                                                className="w-full h-full object-cover"
+                                                                autoPlay
+                                                                onEnded={() => setPlayingVideoId(null)}
+                                                                controls={false}
+                                                            />
+                                                        ) : (
+                                                            <img
+                                                                src={shot.storyboardPanelUri || shot.imageUri}
+                                                                alt={`Shot ${shot.number}`}
+                                                                className="w-full h-full object-cover"
+                                                            />
+                                                        )}
+
+                                                        {/* --- PLAY / GENERATE BUTTON OVERLAY --- */}
+                                                        <div className="absolute inset-0 flex flex-col items-center justify-center z-40 pointer-events-none gap-3">
+                                                            <div className="pointer-events-auto flex flex-col items-center gap-2">
+                                                                {generatingShotIds.includes(shot.id) ? (
+                                                                    // Generating State
+                                                                    <div className="w-16 h-16 rounded-full bg-purple-600 flex items-center justify-center animate-pulse shadow-lg shadow-purple-900/50">
+                                                                        <svg className="w-8 h-8 text-white animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                                                    </div>
+                                                                ) : shot.videoUri ? (
+                                                                    // Play State
+                                                                    <button
+                                                                        onClick={(e) => { e.stopPropagation(); setPlayingVideoId(shot.id); }}
+                                                                        className="w-16 h-16 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-md border border-white/50 flex items-center justify-center transition-all hover:scale-110 group shadow-lg"
+                                                                    >
+                                                                        <svg className="w-8 h-8 text-white fill-white group-hover:scale-110 transition-transform" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+                                                                    </button>
+                                                                ) : (
+                                                                    // Crayon / Generate State
+                                                                    <>
+                                                                        {/* Model Selection Dropdown */}
+                                                                        <div className="relative group/dropdown" onClick={(e) => e.stopPropagation()}>
+                                                                            <select
+                                                                                value={selectedVideoModel}
+                                                                                onChange={(e) => setSelectedVideoModel(e.target.value)}
+                                                                                className="appearance-none bg-black/60 text-white text-[10px] font-medium py-1 pl-2 pr-6 rounded-full border border-white/20 hover:bg-black/80 hover:border-white/40 focus:outline-none focus:ring-1 focus:ring-indigo-500 backdrop-blur-sm transition-all cursor-pointer"
+                                                                            >
+                                                                                {VIDEO_MODELS.map(model => (
+                                                                                    <option key={model.id} value={model.id} disabled={!model.enabled} className={!model.enabled ? "text-slate-500 bg-slate-900" : "bg-slate-800"}>
+                                                                                        {model.name} {!model.enabled && "(Coming Soon)"}
+                                                                                    </option>
+                                                                                ))}
+                                                                            </select>
+                                                                            <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none">
+                                                                                <svg className="w-3 h-3 text-white/50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                                                                            </div>
+                                                                        </div>
+
+                                                                        <button
+                                                                            onClick={(e) => { e.stopPropagation(); handleGenerateShotVideo(shot.id, shot.sceneId); }}
+                                                                            className="w-16 h-16 rounded-full border-2 border-dashed border-white/60 hover:border-white hover:bg-white/10 flex items-center justify-center transition-all hover:scale-105 group"
+                                                                            title={`Generate Video with ${VIDEO_MODELS.find(m => m.id === selectedVideoModel)?.name}`}
+                                                                        >
+                                                                            <svg className="w-8 h-8 text-white/80 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+                                                                        </button>
+                                                                    </>
+                                                                )}
+                                                            </div>
+                                                        </div>
+
                                                         {/* --- DEBUT CHAMP ANIMATION (VERSO) & INFOS --- */}
                                                         <div
                                                             className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/95 via-black/70 to-transparent p-3 flex items-end gap-3 transition-opacity duration-300 z-30"

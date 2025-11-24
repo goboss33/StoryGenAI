@@ -530,6 +530,60 @@ export const generateVideo = async (imageUri: string, prompt: string, aspectRati
   }
 };
 
+// --- Helper: Upload File to Gemini (REST API) ---
+const uploadFileToGemini = async (blob: Blob, mimeType: string): Promise<string> => {
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) throw new Error("API Key not found");
+
+  // 1. Initiate Resumable Upload (or Simple Upload for smaller files)
+  // Using 'multipart' or 'media' upload type. For simplicity with fetch, we'll use the media upload endpoint if available,
+  // but the standard documented way for GenAI is often via the client SDK.
+  // Since we can't use the Node SDK, we use the REST endpoint:
+  // POST https://generativelanguage.googleapis.com/upload/v1beta/files?key=KEY
+
+  // First, we need to get the size
+  const numBytes = blob.size;
+
+  // Initial request to get the upload URL (Resumable upload protocol)
+  const initRes = await fetch(`https://generativelanguage.googleapis.com/upload/v1beta/files?key=${apiKey}`, {
+    method: 'POST',
+    headers: {
+      'X-Goog-Upload-Protocol': 'resumable',
+      'X-Goog-Upload-Command': 'start',
+      'X-Goog-Upload-Header-Content-Length': numBytes.toString(),
+      'X-Goog-Upload-Header-Content-Type': mimeType,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ file: { displayName: `storygen_video_${Date.now()}` } })
+  });
+
+  if (!initRes.ok) throw new Error(`Failed to initiate upload: ${initRes.statusText}`);
+
+  const uploadUrl = initRes.headers.get('x-goog-upload-url');
+  if (!uploadUrl) throw new Error("No upload URL returned");
+
+  // 2. Upload the actual bytes
+  const uploadRes = await fetch(uploadUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Length': numBytes.toString(),
+      'X-Goog-Upload-Offset': '0',
+      'X-Goog-Upload-Command': 'upload, finalize'
+    },
+    body: blob
+  });
+
+  if (!uploadRes.ok) throw new Error(`Failed to upload file bytes: ${uploadRes.statusText}`);
+
+  const uploadResult = await uploadRes.json();
+  const fileUri = uploadResult.file?.uri;
+
+  if (!fileUri) throw new Error("No file URI returned after upload");
+
+  logDebug('info', 'File Uploaded to Gemini', { fileUri });
+  return fileUri;
+};
+
 // --- 5b. Generate Plan Video (Veo 3.1 Preview with Duration) ---
 export const generatePlanVideo = async (
   imageUri: string,
@@ -537,6 +591,15 @@ export const generatePlanVideo = async (
   aspectRatio: '16:9' | '9:16',
   duration: number
 ): Promise<{ localUri: string; remoteUri: string }> => {
+  // MOCK MODE CHECK
+  if ((import.meta as any).env.VITE_USE_MOCK_VEO === 'true') {
+    logDebug('info', 'MOCK MODE: Simulating Generate Plan Video', { duration });
+    await new Promise(resolve => setTimeout(resolve, 2000)); // Simulate latency
+    // Return the input image as the "video" for visual feedback (UI might need to handle this or it will just show a static poster)
+    // And a fake remote URI to prove chaining works
+    return { localUri: imageUri, remoteUri: `mock-file-uri-${Date.now()}` };
+  }
+
   // Validate aspect ratio (only 16:9 and 9:16 supported)
   if (aspectRatio !== '16:9' && aspectRatio !== '9:16') {
     throw new Error(`Aspect ratio ${aspectRatio} not supported. Only 16:9 and 9:16 are allowed.`);
@@ -587,7 +650,10 @@ export const generatePlanVideo = async (
     const videoRes = await fetch(`${videoUri}&key=${process.env.API_KEY}`);
     const videoBlob = await videoRes.blob();
 
-    // Convert blob to base64 data URI
+    // UPLOAD to Gemini to get a valid File API URI for future extensions
+    const fileUri = await uploadFileToGemini(videoBlob, 'video/mp4');
+
+    // Convert blob to base64 data URI for local display
     const base64 = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       reader.onloadend = () => resolve(reader.result as string);
@@ -595,8 +661,8 @@ export const generatePlanVideo = async (
       reader.readAsDataURL(videoBlob);
     });
 
-    logDebug('res', 'Generate Plan Video Success', { size: base64.length, duration: clampedDuration, remoteUri: videoUri });
-    return { localUri: base64, remoteUri: videoUri };
+    logDebug('res', 'Generate Plan Video Success', { size: base64.length, duration: clampedDuration, remoteUri: fileUri });
+    return { localUri: base64, remoteUri: fileUri };
 
   } catch (error: any) {
     logDebug('error', 'Generate Plan Video Failed', error);
@@ -617,6 +683,16 @@ export const extendVideo = async (
   prompt: string,
   aspectRatio: '16:9' | '9:16'
 ): Promise<{ localUri: string; remoteUri: string }> => {
+  // MOCK MODE CHECK
+  if ((import.meta as any).env.VITE_USE_MOCK_VEO === 'true') {
+    logDebug('info', 'MOCK MODE: Simulating Extend Video', { sourceUri: remoteVideoUri });
+    await new Promise(resolve => setTimeout(resolve, 2000)); // Simulate latency
+
+    // In mock mode, we just return the same "video" (which is actually an image URI in our mock strategy)
+    // and a new fake remote URI to show the chain is progressing
+    return { localUri: "mock-video-content", remoteUri: `mock-file-uri-extended-${Date.now()}` };
+  }
+
   if (typeof window !== 'undefined' && (window as any).aistudio) {
     try {
       const hasKey = await (window as any).aistudio.hasSelectedApiKey();
@@ -629,16 +705,14 @@ export const extendVideo = async (
   const veoAi = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 
   try {
-    // Note: The input video must be a Google Cloud URI from a previous generation
-    // We cannot use a local blob or base64 here for extension in the current API version
-    // if it requires a file URI.
-    // Assuming the API accepts the 'gs://' or 'https://' URI returned by the previous generation.
+    // Note: The input video must be a valid File API URI (files/...)
+    // We ensured this by uploading the result in the previous step.
 
     let operation = await veoAi.models.generateVideos({
       model: 'veo-3.1-generate-preview',
       prompt: prompt || "Continue the action naturally",
       video: {
-        fileUri: remoteVideoUri, // Pass the remote URI (File API URI) from the previous generation
+        fileUri: remoteVideoUri,
       } as any,
       config: {
         numberOfVideos: 1,
@@ -662,6 +736,9 @@ export const extendVideo = async (
     const videoRes = await fetch(`${videoUri}&key=${process.env.API_KEY}`);
     const videoBlob = await videoRes.blob();
 
+    // UPLOAD the EXTENDED video to Gemini to get a valid File API URI for the NEXT extension
+    const fileUri = await uploadFileToGemini(videoBlob, 'video/mp4');
+
     const base64 = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       reader.onloadend = () => resolve(reader.result as string);
@@ -669,8 +746,8 @@ export const extendVideo = async (
       reader.readAsDataURL(videoBlob);
     });
 
-    logDebug('res', 'Extend Video Success', { size: base64.length, remoteUri: videoUri });
-    return { localUri: base64, remoteUri: videoUri };
+    logDebug('res', 'Extend Video Success', { size: base64.length, remoteUri: fileUri });
+    return { localUri: base64, remoteUri: fileUri };
 
   } catch (error: any) {
     logDebug('error', 'Extend Video Failed', error);
