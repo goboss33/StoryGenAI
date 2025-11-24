@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { Scene, Pacing, Asset, AssetType, AspectRatio } from '../types';
-import { generateScript, generateImage, editImage, generateMultimodalImage } from '../services/geminiService';
+import { generateScript, generateImage, editImage, generateMultimodalImage, generatePlanVideo, extendVideo } from '../services/geminiService';
 
 interface Props {
     idea: string;
@@ -682,6 +682,66 @@ COMPOSITION RULES:
         setNewAssetData({ name: '', type: AssetType.CHARACTER });
     };
 
+    const handleGenerateSceneVideo = async (group: SceneGroup) => {
+        if (generatingSceneIds.includes(group.sceneId)) return;
+        setGeneratingSceneIds(prev => [...prev, group.sceneId]);
+
+        try {
+            // Sort shots by number to ensure sequence
+            const sortedShots = [...group.shots].sort((a, b) => a.number - b.number);
+            let previousRemoteUri: string | undefined = undefined;
+            let currentVideoUri: string | undefined = undefined;
+
+            for (let i = 0; i < sortedShots.length; i++) {
+                const shot = sortedShots[i];
+                const isFirstShot = i === 0;
+
+                if (isFirstShot) {
+                    // First shot: Generate fresh video
+                    const imageSource = shot.storyboardPanelUri || shot.imageUri;
+                    if (!imageSource) {
+                        throw new Error(`Shot ${shot.number} needs an image to start the scene video.`);
+                    }
+                    // Use Veo Motion Prompt or description
+                    const prompt = shot.veoMotionPrompt || shot.description;
+                    const { localUri, remoteUri } = await generatePlanVideo(imageSource, prompt, aspectRatio, shot.duration);
+
+                    previousRemoteUri = remoteUri;
+                    currentVideoUri = localUri;
+
+                    // Update shot
+                    updateShot(shot.id, { videoUri: localUri, remoteVideoUri: remoteUri });
+                } else {
+                    // Subsequent shots: Extend previous video
+                    if (!previousRemoteUri) {
+                        throw new Error(`Cannot extend video for shot ${shot.number}: previous shot has no remote URI.`);
+                    }
+
+                    const prompt = shot.veoMotionPrompt || shot.description;
+                    // Extend
+                    const { localUri, remoteUri } = await extendVideo(previousRemoteUri, prompt, aspectRatio);
+
+                    previousRemoteUri = remoteUri;
+                    currentVideoUri = localUri;
+
+                    // Update shot with the EXTENDED video (which is the cumulative video so far)
+                    updateShot(shot.id, { videoUri: localUri, remoteVideoUri: remoteUri });
+                }
+            }
+
+            // Update the FIRST shot with the FINAL full video so user can play the whole scene from start
+            if (sortedShots.length > 0 && currentVideoUri && previousRemoteUri) {
+                updateShot(sortedShots[0].id, { videoUri: currentVideoUri, remoteVideoUri: previousRemoteUri });
+            }
+
+        } catch (e: any) {
+            console.error("Scene video generation failed", e);
+            alert(`Failed to generate scene video: ${e.message || e}`);
+        } finally {
+            setGeneratingSceneIds(prev => prev.filter(id => id !== group.sceneId));
+        }
+    };
+
     const handleSaveProject = () => {
         const projectData = {
             idea,
@@ -856,6 +916,20 @@ COMPOSITION RULES:
                                             )}
                                         </button>
                                     )}
+
+                                    {/* Generate Full Scene Video Button */}
+                                    <button
+                                        onClick={() => handleGenerateSceneVideo(group)}
+                                        disabled={generatingSceneIds.includes(group.sceneId)}
+                                        className="w-10 h-10 bg-gradient-to-br from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-lg flex items-center justify-center transition-all shadow-lg shadow-purple-900/20 border border-purple-400 mt-2"
+                                        title="Generate Full Scene Video (Veo Extension)"
+                                    >
+                                        {generatingSceneIds.includes(group.sceneId) ? (
+                                            <span className="block w-5 h-5 animate-spin border-2 border-white border-t-transparent rounded-full"></span>
+                                        ) : (
+                                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                        )}
+                                    </button>
                                 </div>
 
                                 <div

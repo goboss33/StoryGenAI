@@ -38,6 +38,7 @@ export interface Scene {
   // App State
   imageUri?: string;
   videoUri?: string;
+  remoteVideoUri?: string; // Google Cloud URI for Veo extension
   isGenerating?: boolean;
   sceneStoryboardUri?: string;
   storyboardPanelUri?: string;

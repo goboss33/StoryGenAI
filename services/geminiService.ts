@@ -530,6 +530,155 @@ export const generateVideo = async (imageUri: string, prompt: string, aspectRati
   }
 };
 
+// --- 5b. Generate Plan Video (Veo 3.1 Preview with Duration) ---
+export const generatePlanVideo = async (
+  imageUri: string,
+  prompt: string,
+  aspectRatio: '16:9' | '9:16',
+  duration: number
+): Promise<{ localUri: string; remoteUri: string }> => {
+  // Validate aspect ratio (only 16:9 and 9:16 supported)
+  if (aspectRatio !== '16:9' && aspectRatio !== '9:16') {
+    throw new Error(`Aspect ratio ${aspectRatio} not supported. Only 16:9 and 9:16 are allowed.`);
+  }
+
+  // Validate duration (Veo supports 1-8 seconds for preview model)
+  const clampedDuration = Math.min(Math.max(duration, 1), 8);
+
+  if (typeof window !== 'undefined' && (window as any).aistudio) {
+    try {
+      const hasKey = await (window as any).aistudio.hasSelectedApiKey();
+      if (!hasKey) await (window as any).aistudio.openSelectKey();
+    } catch (e) { console.warn("AI Studio key check failed", e); }
+  }
+
+  logDebug('req', 'Generate Plan Video (Veo 3.1)', { prompt, aspectRatio, duration: clampedDuration });
+
+  const veoAi = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+  const { mimeType, data } = parseDataUri(imageUri);
+
+  try {
+    let operation = await veoAi.models.generateVideos({
+      model: 'veo-3.1-generate-preview',
+      prompt: prompt || "Animate this scene naturally",
+      image: { imageBytes: data, mimeType: mimeType },
+      config: {
+        numberOfVideos: 1,
+        resolution: '720p',
+        aspectRatio: aspectRatio,
+        duration: `${clampedDuration}s`
+      } as any // Cast to any because duration is not yet in type definitions
+    });
+
+    // Track Usage (Video Cost varies by duration: ~$0.15/s)
+    const estimatedCost = clampedDuration * 0.15;
+    trackUsage('veo-3.1-generate-preview', 0, 0, estimatedCost);
+
+    // Poll for completion
+    while (!operation.done) {
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      operation = await veoAi.operations.getVideosOperation({ operation });
+    }
+
+    const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
+    if (!videoUri) throw new Error("No video URI returned");
+
+    // Fetch video and convert to base64 data URI for storage
+    const videoRes = await fetch(`${videoUri}&key=${process.env.API_KEY}`);
+    const videoBlob = await videoRes.blob();
+
+    // Convert blob to base64 data URI
+    const base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(videoBlob);
+    });
+
+    logDebug('res', 'Generate Plan Video Success', { size: base64.length, duration: clampedDuration, remoteUri: videoUri });
+    return { localUri: base64, remoteUri: videoUri };
+
+  } catch (error: any) {
+    logDebug('error', 'Generate Plan Video Failed', error);
+    if (error.message && error.message.includes("Requested entity was not found") && (window as any).aistudio) {
+      try {
+        await (window as any).aistudio.openSelectKey();
+        throw new Error("API Key refreshed. Please try again.");
+      } catch (e) { /* ignore */ }
+    }
+    console.error("Plan video generation failed:", error);
+    throw error;
+  }
+};
+
+// --- 5c. Extend Video (Veo 3.1) ---
+export const extendVideo = async (
+  remoteVideoUri: string,
+  prompt: string,
+  aspectRatio: '16:9' | '9:16'
+): Promise<{ localUri: string; remoteUri: string }> => {
+  if (typeof window !== 'undefined' && (window as any).aistudio) {
+    try {
+      const hasKey = await (window as any).aistudio.hasSelectedApiKey();
+      if (!hasKey) await (window as any).aistudio.openSelectKey();
+    } catch (e) { console.warn("AI Studio key check failed", e); }
+  }
+
+  logDebug('req', 'Extend Video (Veo 3.1)', { prompt, aspectRatio, sourceUri: remoteVideoUri });
+
+  const veoAi = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+
+  try {
+    // Note: The input video must be a Google Cloud URI from a previous generation
+    // We cannot use a local blob or base64 here for extension in the current API version
+    // if it requires a file URI.
+    // Assuming the API accepts the 'gs://' or 'https://' URI returned by the previous generation.
+
+    let operation = await veoAi.models.generateVideos({
+      model: 'veo-3.1-generate-preview',
+      prompt: prompt || "Continue the action naturally",
+      video: {
+        fileUri: remoteVideoUri, // Pass the remote URI (File API URI) from the previous generation
+      } as any,
+      config: {
+        numberOfVideos: 1,
+        resolution: '720p',
+        aspectRatio: aspectRatio,
+        duration: '5s' // Extend by 5 seconds
+      } as any
+    });
+
+    // Track Usage
+    trackUsage('veo-3.1-generate-preview', 0, 0, 0.75);
+
+    while (!operation.done) {
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      operation = await veoAi.operations.getVideosOperation({ operation });
+    }
+
+    const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
+    if (!videoUri) throw new Error("No video URI returned");
+
+    const videoRes = await fetch(`${videoUri}&key=${process.env.API_KEY}`);
+    const videoBlob = await videoRes.blob();
+
+    const base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(videoBlob);
+    });
+
+    logDebug('res', 'Extend Video Success', { size: base64.length, remoteUri: videoUri });
+    return { localUri: base64, remoteUri: videoUri };
+
+  } catch (error: any) {
+    logDebug('error', 'Extend Video Failed', error);
+    console.error("Extend video failed:", error);
+    throw error;
+  }
+};
+
 // --- 6. Generate Multimodal Image (Gemini 3 Pro) ---
 export const generateMultimodalImage = async (
   prompt: string,
