@@ -27,11 +27,21 @@ const Step1BisDialogue: React.FC<Props> = ({
 
     // Sequencer State
     const [isPlayingSequence, setIsPlayingSequence] = useState(false);
-    const isPlayingRef = useRef(false); // Ref for synchronous access in loop
+    const isPlayingRef = useRef(false);
     const [currentTime, setCurrentTime] = useState(0);
     const [totalDurationState, setTotalDurationState] = useState(0);
+
+    // Refs for optimization
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const audioRef = useRef<HTMLAudioElement | null>(null);
+    const playheadRef = useRef<HTMLDivElement>(null);
+    const timelineRef = useRef<HTMLDivElement>(null);
+    const animationFrameRef = useRef<number | null>(null);
+    const lastTimeUpdateRef = useRef<number>(0);
+
+    // Constants
+    const PIXELS_PER_SECOND = 30;
+    const MIN_ITEM_WIDTH = 60;
 
     // Calculate total duration whenever script changes
     useEffect(() => {
@@ -117,6 +127,42 @@ const Step1BisDialogue: React.FC<Props> = ({
         }
     };
 
+    // --- Helper Functions ---
+    const getItemWidth = (item: AudioScriptItem) => Math.max(MIN_ITEM_WIDTH, (item.durationEstimate || 2) * PIXELS_PER_SECOND);
+
+    const getPixelOffsetForTime = (time: number) => {
+        let pixelOffset = 0;
+        let remainingTime = time;
+
+        for (const item of audioScript) {
+            const itemDuration = item.durationEstimate || 2;
+            const itemWidth = getItemWidth(item);
+
+            if (remainingTime <= itemDuration) {
+                const progressPercent = remainingTime / itemDuration;
+                return pixelOffset + (itemWidth * progressPercent);
+            }
+
+            remainingTime -= itemDuration;
+            pixelOffset += itemWidth;
+        }
+        return pixelOffset;
+    };
+
+    const updatePlayhead = (time: number) => {
+        if (playheadRef.current) {
+            const offset = getPixelOffsetForTime(time);
+            playheadRef.current.style.transform = `translateX(${offset}px)`;
+        }
+
+        // Throttle React state updates to 10fps to avoid stutter
+        const now = Date.now();
+        if (now - lastTimeUpdateRef.current > 100) {
+            setCurrentTime(time);
+            lastTimeUpdateRef.current = now;
+        }
+    };
+
     // --- Sequencer Logic ---
     const stopSequence = () => {
         setIsPlayingSequence(false);
@@ -124,6 +170,9 @@ const Step1BisDialogue: React.FC<Props> = ({
         if (audioRef.current) {
             audioRef.current.pause();
             audioRef.current = null;
+        }
+        if (animationFrameRef.current) {
+            cancelAnimationFrame(animationFrameRef.current);
         }
     };
 
@@ -135,11 +184,27 @@ const Step1BisDialogue: React.FC<Props> = ({
 
         setIsPlayingSequence(true);
         isPlayingRef.current = true;
+
+        // Start from current time or 0 if at end
+        let playbackTime = currentTime >= totalDurationState ? 0 : currentTime;
         let accumulatedTime = 0;
+        let startIndex = 0;
 
-        for (const item of audioScript) {
+        // Find where to start
+        for (let i = 0; i < audioScript.length; i++) {
+            const duration = audioScript[i].durationEstimate || 2;
+            if (accumulatedTime + duration > playbackTime) {
+                startIndex = i;
+                // Adjust accumulated time to be the start of this item
+                break;
+            }
+            accumulatedTime += duration;
+        }
+
+        // Playback Loop
+        for (let i = startIndex; i < audioScript.length; i++) {
             if (!isPlayingRef.current) break;
-
+            const item = audioScript[i];
             setActiveItemId(item.id);
 
             // Scroll item into view
@@ -150,106 +215,84 @@ const Step1BisDialogue: React.FC<Props> = ({
                 container.scrollTo({ left: Math.max(0, offset), behavior: 'smooth' });
             }
 
-            const duration = item.durationEstimate || 2;
+            const itemDuration = item.durationEstimate || 2;
+            // Calculate start offset within this item if we're resuming mid-item
+            const startOffset = Math.max(0, playbackTime - accumulatedTime);
+            const durationToPlay = itemDuration - startOffset;
 
             if (item.isBreak) {
                 const startTime = Date.now();
-                while (Date.now() - startTime < duration * 1000) {
+                while (Date.now() - startTime < durationToPlay * 1000) {
                     if (!isPlayingRef.current) break;
-                    setCurrentTime(accumulatedTime + (Date.now() - startTime) / 1000);
+                    const elapsed = (Date.now() - startTime) / 1000;
+                    playbackTime = accumulatedTime + startOffset + elapsed;
+                    updatePlayhead(playbackTime);
                     await new Promise(resolve => requestAnimationFrame(resolve));
                 }
             } else if (item.audioUri) {
                 await new Promise<void>((resolve) => {
                     const audio = new Audio(item.audioUri);
                     audioRef.current = audio;
+                    audio.currentTime = startOffset;
 
-                    audio.ontimeupdate = () => {
-                        if (isPlayingRef.current) {
-                            setCurrentTime(accumulatedTime + audio.currentTime);
+                    const updateLoop = () => {
+                        if (isPlayingRef.current && !audio.paused) {
+                            playbackTime = accumulatedTime + audio.currentTime;
+                            updatePlayhead(playbackTime);
+                            animationFrameRef.current = requestAnimationFrame(updateLoop);
                         }
                     };
 
+                    audio.onplay = () => {
+                        updateLoop();
+                    };
+
                     audio.onended = () => {
+                        if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
                         resolve();
                     };
 
                     audio.play().catch(e => {
                         console.error("Playback failed", e);
-                        resolve(); // Skip if error
+                        resolve();
                     });
                 });
             } else {
-                // Simulate reading time if no audio
+                // Simulate reading
                 const startTime = Date.now();
-                while (Date.now() - startTime < duration * 1000) {
+                while (Date.now() - startTime < durationToPlay * 1000) {
                     if (!isPlayingRef.current) break;
-                    setCurrentTime(accumulatedTime + (Date.now() - startTime) / 1000);
+                    const elapsed = (Date.now() - startTime) / 1000;
+                    playbackTime = accumulatedTime + startOffset + elapsed;
+                    updatePlayhead(playbackTime);
                     await new Promise(resolve => requestAnimationFrame(resolve));
                 }
             }
 
-            accumulatedTime += duration;
+            accumulatedTime += itemDuration;
+            // Reset startOffset for next items
+            playbackTime = accumulatedTime;
         }
 
         stopSequence();
-        setCurrentTime(0);
-        setActiveItemId(null);
-    };
-
-    // --- Render Helpers ---
-    const formatTime = (seconds: number) => {
-        const mins = Math.floor(seconds / 60);
-        const secs = Math.floor(seconds % 60);
-        return `${mins}:${secs.toString().padStart(2, '0')}`;
-    };
-
-    const getItemWidth = (item: AudioScriptItem) => Math.max(60, (item.durationEstimate || 2) * 30);
-
-    const calculatePlayheadPosition = () => {
-        let pixelOffset = 0;
-        let remainingTime = currentTime;
-
-        for (const item of audioScript) {
-            const itemDuration = item.durationEstimate || 2;
-            const itemWidth = getItemWidth(item);
-
-            if (remainingTime <= itemDuration) {
-                // We are inside this item
-                const progressPercent = remainingTime / itemDuration;
-                return pixelOffset + (itemWidth * progressPercent);
-            }
-
-            remainingTime -= itemDuration;
-            pixelOffset += itemWidth;
+        if (playbackTime >= totalDurationState) {
+            setCurrentTime(0);
+            updatePlayhead(0);
+            setActiveItemId(null);
         }
-        return pixelOffset; // End of timeline
     };
 
-    // Generate consistent color from string
-    const getSpeakerColor = (speaker: string) => {
-        if (speaker === 'Narrator') return { bg: 'bg-slate-100', border: 'border-slate-300', text: 'text-slate-700' };
-        // Simple hash-based pastel colors
-        const colors = [
-            { bg: 'bg-blue-100', border: 'border-blue-300', text: 'text-blue-700' },
-            { bg: 'bg-green-100', border: 'border-green-300', text: 'text-green-700' },
-            { bg: 'bg-purple-100', border: 'border-purple-300', text: 'text-purple-700' },
-            { bg: 'bg-orange-100', border: 'border-orange-300', text: 'text-orange-700' },
-            { bg: 'bg-pink-100', border: 'border-pink-300', text: 'text-pink-700' },
-            { bg: 'bg-teal-100', border: 'border-teal-300', text: 'text-teal-700' },
-        ];
-        let hash = 0;
-        for (let i = 0; i < speaker.length; i++) hash = speaker.charCodeAt(i) + ((hash << 5) - hash);
-        return colors[Math.abs(hash) % colors.length];
-    };
-
-    const handleTimelineScrub = (e: React.MouseEvent<HTMLDivElement>) => {
+    // --- Scrubbing Logic ---
+    const handleScrub = (e: React.MouseEvent | MouseEvent) => {
         if (!scrollContainerRef.current) return;
         const rect = scrollContainerRef.current.getBoundingClientRect();
-        const clickX = e.clientX - rect.left + scrollContainerRef.current.scrollLeft - 16; // -16 for padding
+        const scrollLeft = scrollContainerRef.current.scrollLeft;
+        const clickX = (e.clientX - rect.left + scrollLeft) - 16; // -16 padding
 
         let accumulatedWidth = 0;
         let accumulatedTime = 0;
+        let newTime = 0;
+        let foundItem = false;
 
         for (const item of audioScript) {
             const itemWidth = getItemWidth(item);
@@ -258,16 +301,43 @@ const Step1BisDialogue: React.FC<Props> = ({
             if (clickX >= accumulatedWidth && clickX < accumulatedWidth + itemWidth) {
                 const offsetInItem = clickX - accumulatedWidth;
                 const timeInItem = (offsetInItem / itemWidth) * itemDuration;
-                setCurrentTime(accumulatedTime + timeInItem);
+                newTime = accumulatedTime + timeInItem;
                 setActiveItemId(item.id);
-                return;
+                foundItem = true;
+                break;
             }
 
             accumulatedWidth += itemWidth;
             accumulatedTime += itemDuration;
         }
+
+        if (!foundItem) {
+            if (clickX < 0) newTime = 0;
+            else newTime = totalDurationState;
+        }
+
+        setCurrentTime(newTime);
+        updatePlayhead(newTime);
     };
 
+    const handleTimelineMouseDown = (e: React.MouseEvent) => {
+        stopSequence(); // Stop playing when scrubbing starts
+        handleScrub(e);
+
+        const handleMouseMove = (moveEvent: MouseEvent) => {
+            handleScrub(moveEvent);
+        };
+
+        const handleMouseUp = () => {
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+        };
+
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+    };
+
+    // --- Resize Logic ---
     const handleResizeBreak = (e: React.MouseEvent, item: AudioScriptItem) => {
         e.stopPropagation();
         const startX = e.clientX;
@@ -275,7 +345,7 @@ const Step1BisDialogue: React.FC<Props> = ({
 
         const handleMouseMove = (moveEvent: MouseEvent) => {
             const diffX = moveEvent.clientX - startX;
-            const diffSeconds = Math.round(diffX / 30); // 30px per second
+            const diffSeconds = Math.round(diffX / PIXELS_PER_SECOND);
             const newDuration = Math.max(1, startDuration + diffSeconds);
             if (newDuration !== item.durationEstimate) {
                 handleUpdateItem(item.id, { durationEstimate: newDuration, text: `[${newDuration}s]` });
@@ -291,8 +361,29 @@ const Step1BisDialogue: React.FC<Props> = ({
         document.addEventListener('mouseup', handleMouseUp);
     };
 
-    const renderWaveform = (item: AudioScriptItem, isActive: boolean, colorClass: string) => {
-        // Deterministic pseudo-random height based on id
+    // --- Render Helpers ---
+    const formatTime = (seconds: number) => {
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    };
+
+    const getSpeakerColor = (speaker: string) => {
+        if (speaker === 'Narrator') return { bg: 'bg-slate-100', border: 'border-slate-300', text: 'text-slate-700' };
+        const colors = [
+            { bg: 'bg-blue-100', border: 'border-blue-300', text: 'text-blue-700' },
+            { bg: 'bg-green-100', border: 'border-green-300', text: 'text-green-700' },
+            { bg: 'bg-purple-100', border: 'border-purple-300', text: 'text-purple-700' },
+            { bg: 'bg-orange-100', border: 'border-orange-300', text: 'text-orange-700' },
+            { bg: 'bg-pink-100', border: 'border-pink-300', text: 'text-pink-700' },
+            { bg: 'bg-teal-100', border: 'border-teal-300', text: 'text-teal-700' },
+        ];
+        let hash = 0;
+        for (let i = 0; i < speaker.length; i++) hash = speaker.charCodeAt(i) + ((hash << 5) - hash);
+        return colors[Math.abs(hash) % colors.length];
+    };
+
+    const renderWaveform = (item: AudioScriptItem, isActive: boolean) => {
         const getBarHeight = (index: number) => {
             const seed = item.id.charCodeAt(index % item.id.length) + index;
             return 20 + (seed % 70) + '%';
@@ -307,6 +398,28 @@ const Step1BisDialogue: React.FC<Props> = ({
                         style={{ height: getBarHeight(i) }}
                     />
                 ))}
+            </div>
+        );
+    };
+
+    const renderTimeRuler = () => {
+        const totalWidth = audioScript.reduce((acc, item) => acc + getItemWidth(item), 0);
+        const ticks = [];
+        const tickInterval = 5; // seconds
+
+        for (let t = 0; t <= totalDurationState; t += tickInterval) {
+            const offset = getPixelOffsetForTime(t);
+            ticks.push(
+                <div key={t} className="absolute top-0 flex flex-col items-center" style={{ left: `${offset}px`, transform: 'translateX(-50%)' }}>
+                    <div className="text-[9px] text-slate-400 font-mono mb-1 select-none">{formatTime(t)}</div>
+                    <div className="w-[1px] h-2 bg-slate-300"></div>
+                </div>
+            );
+        }
+
+        return (
+            <div className="h-6 w-full relative mb-1 pointer-events-none">
+                {ticks}
             </div>
         );
     };
@@ -329,7 +442,7 @@ const Step1BisDialogue: React.FC<Props> = ({
                         <span className="text-[10px] text-slate-400 font-mono select-none">{item.durationEstimate}s</span>
                         {/* Resize Handle */}
                         <div
-                            className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-slate-100 flex items-center justify-center"
+                            className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-slate-100 flex items-center justify-center z-20"
                             onMouseDown={(e) => handleResizeBreak(e, item)}
                         >
                             <div className="w-[2px] h-4 bg-slate-300 rounded-full" />
@@ -361,7 +474,7 @@ const Step1BisDialogue: React.FC<Props> = ({
 
                 {/* Waveform Area */}
                 <div className="flex-1 w-full relative flex items-end">
-                    {item.audioUri ? renderWaveform(item, isActive, colors.text) : (
+                    {item.audioUri ? renderWaveform(item, isActive) : (
                         <div className="w-full h-full flex items-center justify-center text-[10px] text-slate-400 italic select-none">
                             Pending
                         </div>
@@ -375,7 +488,6 @@ const Step1BisDialogue: React.FC<Props> = ({
 
     // --- RENDER ---
 
-    // Empty State
     if (audioScript.length === 0) {
         return (
             <div className="h-full flex flex-col items-center justify-center bg-slate-50 p-8">
@@ -431,7 +543,7 @@ const Step1BisDialogue: React.FC<Props> = ({
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
-                            Play All
+                            {isPlayingSequence ? 'Pause' : 'Play All'}
                         </button>
                         <button
                             onClick={handleGenerate}
@@ -447,7 +559,7 @@ const Step1BisDialogue: React.FC<Props> = ({
                 </div>
 
                 {/* Scrollable Document Area (with padding for sticky timeline) */}
-                <div className="flex-1 overflow-y-auto p-8 pb-48 bg-slate-50">
+                <div className="flex-1 overflow-y-auto p-8 pb-64 bg-slate-50">
                     <div className="max-w-3xl mx-auto bg-white shadow-sm rounded-xl min-h-[800px] p-12 border border-slate-200">
                         {audioScript.map((item, index) => {
                             if (item.isBreak) {
@@ -552,58 +664,65 @@ const Step1BisDialogue: React.FC<Props> = ({
                 </div>
 
                 {/* STICKY BOTTOM PLAYER & TIMELINE */}
-                <div className="fixed bottom-0 left-0 right-0 h-32 bg-white border-t border-slate-200 z-50 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.1)] flex flex-col">
+                <div className="fixed bottom-0 left-0 right-0 h-48 bg-white border-t border-slate-200 z-50 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.1)] flex flex-col">
 
                     {/* Player Controls */}
-                    <div className="h-10 border-b border-slate-100 flex items-center justify-between px-8 bg-slate-50/50">
+                    <div className="h-16 border-b border-slate-100 flex items-center justify-between px-8 bg-slate-50/50">
                         <div className="flex items-center gap-4 w-1/3">
                             <div className="text-xs font-mono text-slate-500">
                                 <span className="text-slate-900 font-bold">{formatTime(currentTime)}</span> / {formatTime(totalDurationState)}
                             </div>
                         </div>
 
-                        <div className="flex items-center justify-center gap-4 w-1/3">
+                        <div className="flex items-center justify-center gap-6 w-1/3">
                             <button className="text-slate-400 hover:text-slate-600 transition-colors">
-                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z" /></svg>
+                                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z" /></svg>
                             </button>
                             <button
                                 onClick={playSequence}
-                                className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-lg hover:bg-indigo-700 hover:scale-105 transition-all"
+                                className="w-12 h-12 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-lg hover:bg-indigo-700 hover:scale-105 transition-all"
                             >
                                 {isPlayingSequence ? (
-                                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
+                                    <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
                                 ) : (
-                                    <svg className="w-4 h-4 ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+                                    <svg className="w-6 h-6 ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
                                 )}
                             </button>
                             <button className="text-slate-400 hover:text-slate-600 transition-colors">
-                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z" /></svg>
+                                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z" /></svg>
                             </button>
                         </div>
 
                         <div className="flex items-center justify-end gap-4 w-1/3">
-                            {/* Zoom or other controls could go here */}
+                            <div className="flex gap-4 text-[10px] text-slate-400 uppercase tracking-wider font-bold">
+                                <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-indigo-500"></div> Active</span>
+                                <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-slate-300"></div> Pending</span>
+                            </div>
                         </div>
                     </div>
 
                     {/* Timeline Track */}
                     <div
                         ref={scrollContainerRef}
-                        className="flex-1 overflow-x-auto custom-scrollbar relative bg-slate-100/50"
-                        onMouseDown={handleTimelineScrub}
+                        className="flex-1 overflow-x-auto custom-scrollbar relative bg-slate-50"
+                        onMouseDown={handleTimelineMouseDown}
                     >
-                        <div className="flex h-full items-center min-w-max px-4 relative py-2">
+                        <div className="flex h-full items-stretch min-w-max px-4 relative pt-6 pb-2">
+                            {/* Time Ruler */}
+                            {renderTimeRuler()}
+
                             {audioScript.map(renderTimelineItem)}
 
                             {/* Playhead Overlay */}
                             <div
-                                className="absolute top-0 bottom-0 w-[2px] bg-red-500 z-30 pointer-events-none transition-all duration-75 ease-linear"
+                                ref={playheadRef}
+                                className="absolute top-0 bottom-0 w-[2px] bg-red-500 z-30 pointer-events-none transition-none"
                                 style={{
-                                    left: `${calculatePlayheadPosition() + 16}px`, // +16 for padding-left
+                                    left: '16px', // Initial padding offset
                                     display: 'block'
                                 }}
                             >
-                                <div className="w-3 h-3 -ml-1.5 bg-red-500 rounded-full shadow-sm mt-0" />
+                                <div className="w-3 h-3 -ml-1.5 bg-red-500 rounded-full shadow-sm mt-6" />
                             </div>
                         </div>
                     </div>
