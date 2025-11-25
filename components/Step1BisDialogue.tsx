@@ -27,8 +27,11 @@ const Step1BisDialogue: React.FC<Props> = ({
 
     // Sequencer State
     const [isPlayingSequence, setIsPlayingSequence] = useState(false);
+    const isPlayingRef = useRef(false); // Ref for synchronous access in loop
     const [currentTime, setCurrentTime] = useState(0);
     const [totalDurationState, setTotalDurationState] = useState(0);
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const audioRef = useRef<HTMLAudioElement | null>(null);
 
     // Calculate total duration whenever script changes
     useEffect(() => {
@@ -115,40 +118,83 @@ const Step1BisDialogue: React.FC<Props> = ({
     };
 
     // --- Sequencer Logic ---
+    const stopSequence = () => {
+        setIsPlayingSequence(false);
+        isPlayingRef.current = false;
+        if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current = null;
+        }
+    };
+
     const playSequence = async () => {
         if (isPlayingSequence) {
-            setIsPlayingSequence(false);
+            stopSequence();
             return;
         }
 
         setIsPlayingSequence(true);
+        isPlayingRef.current = true;
         let accumulatedTime = 0;
 
         for (const item of audioScript) {
-            if (!isPlayingSequence) break; // Check if stopped (Note: this check inside loop might need ref refactoring for instant stop)
+            if (!isPlayingRef.current) break;
 
             setActiveItemId(item.id);
-            setCurrentTime(accumulatedTime);
+
+            // Scroll item into view
+            const element = document.getElementById(`timeline-item-${item.id}`);
+            if (element && scrollContainerRef.current) {
+                const container = scrollContainerRef.current;
+                const offset = element.offsetLeft - container.offsetLeft - (container.clientWidth / 2) + (element.clientWidth / 2);
+                container.scrollTo({ left: Math.max(0, offset), behavior: 'smooth' });
+            }
+
+            const duration = item.durationEstimate || 2;
 
             if (item.isBreak) {
-                await new Promise(resolve => setTimeout(resolve, (item.durationEstimate || 1) * 1000));
+                const startTime = Date.now();
+                while (Date.now() - startTime < duration * 1000) {
+                    if (!isPlayingRef.current) break;
+                    setCurrentTime(accumulatedTime + (Date.now() - startTime) / 1000);
+                    await new Promise(resolve => requestAnimationFrame(resolve));
+                }
             } else if (item.audioUri) {
-                const audio = new Audio(item.audioUri);
-                await new Promise((resolve) => {
-                    audio.onended = resolve;
-                    audio.play();
+                await new Promise<void>((resolve) => {
+                    const audio = new Audio(item.audioUri);
+                    audioRef.current = audio;
+
+                    audio.ontimeupdate = () => {
+                        if (isPlayingRef.current) {
+                            setCurrentTime(accumulatedTime + audio.currentTime);
+                        }
+                    };
+
+                    audio.onended = () => {
+                        resolve();
+                    };
+
+                    audio.play().catch(e => {
+                        console.error("Playback failed", e);
+                        resolve(); // Skip if error
+                    });
                 });
             } else {
                 // Simulate reading time if no audio
-                await new Promise(resolve => setTimeout(resolve, (item.durationEstimate || 2) * 1000));
+                const startTime = Date.now();
+                while (Date.now() - startTime < duration * 1000) {
+                    if (!isPlayingRef.current) break;
+                    setCurrentTime(accumulatedTime + (Date.now() - startTime) / 1000);
+                    await new Promise(resolve => requestAnimationFrame(resolve));
+                }
             }
 
-            accumulatedTime += (item.durationEstimate || 0);
+            accumulatedTime += duration;
         }
 
-        setIsPlayingSequence(false);
-        setActiveItemId(null);
+        stopSequence();
         setCurrentTime(0);
+        setActiveItemId(null);
     };
 
     // --- Render Helpers ---
@@ -156,6 +202,28 @@ const Step1BisDialogue: React.FC<Props> = ({
         const mins = Math.floor(seconds / 60);
         const secs = Math.floor(seconds % 60);
         return `${mins}:${secs.toString().padStart(2, '0')}`;
+    };
+
+    const getItemWidth = (item: AudioScriptItem) => Math.max(60, (item.durationEstimate || 2) * 30);
+
+    const calculatePlayheadPosition = () => {
+        let pixelOffset = 0;
+        let remainingTime = currentTime;
+
+        for (const item of audioScript) {
+            const itemDuration = item.durationEstimate || 2;
+            const itemWidth = getItemWidth(item);
+
+            if (remainingTime <= itemDuration) {
+                // We are inside this item
+                const progressPercent = remainingTime / itemDuration;
+                return pixelOffset + (itemWidth * progressPercent);
+            }
+
+            remainingTime -= itemDuration;
+            pixelOffset += itemWidth;
+        }
+        return pixelOffset; // End of timeline
     };
 
     const renderWaveform = (item: AudioScriptItem, isActive: boolean) => {
@@ -179,12 +247,13 @@ const Step1BisDialogue: React.FC<Props> = ({
     };
 
     const renderTimelineItem = (item: AudioScriptItem) => {
-        const width = Math.max(60, (item.durationEstimate || 2) * 30); // Wider items
+        const width = getItemWidth(item);
         const isActive = activeItemId === item.id;
 
         if (item.isBreak) {
             return (
                 <div
+                    id={`timeline-item-${item.id}`}
                     key={item.id}
                     className="h-full flex flex-col justify-end pb-2 relative group flex-shrink-0"
                     style={{ width: `${width}px` }}
@@ -202,6 +271,7 @@ const Step1BisDialogue: React.FC<Props> = ({
 
         return (
             <div
+                id={`timeline-item-${item.id}`}
                 key={item.id}
                 onClick={() => setActiveItemId(item.id)}
                 className={`h-full flex flex-col relative group flex-shrink-0 cursor-pointer transition-colors border-r border-slate-100
@@ -438,14 +508,23 @@ const Step1BisDialogue: React.FC<Props> = ({
                     </div>
 
                     {/* Timeline Track */}
-                    <div className="flex-1 overflow-x-auto custom-scrollbar relative bg-slate-50">
-                        <div className="flex h-full items-stretch min-w-max px-4">
+                    <div
+                        ref={scrollContainerRef}
+                        className="flex-1 overflow-x-auto custom-scrollbar relative bg-slate-50"
+                    >
+                        <div className="flex h-full items-stretch min-w-max px-4 relative">
                             {audioScript.map(renderTimelineItem)}
-                        </div>
 
-                        {/* Playhead (Visual only for now) */}
-                        <div className="absolute top-0 bottom-0 w-[1px] bg-red-500 z-20 pointer-events-none left-8" style={{ display: isPlayingSequence ? 'block' : 'none' }}>
-                            <div className="w-3 h-3 -ml-1.5 bg-red-500 rounded-full shadow-sm" />
+                            {/* Playhead Overlay */}
+                            <div
+                                className="absolute top-0 bottom-0 w-[2px] bg-red-500 z-30 pointer-events-none transition-all duration-100 ease-linear"
+                                style={{
+                                    left: `${calculatePlayheadPosition() + 16}px`, // +16 for padding-left
+                                    display: isPlayingSequence ? 'block' : 'none'
+                                }}
+                            >
+                                <div className="w-3 h-3 -ml-1.5 bg-red-500 rounded-full shadow-sm mt-1" />
+                            </div>
                         </div>
                     </div>
                 </div>
