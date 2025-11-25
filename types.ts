@@ -108,10 +108,21 @@ export interface StoryState {
 
 export interface AudioScriptItem {
   id: string;
-  speaker: string; // 'Narrator', 'Character Name', etc.
+  speaker: string;
   text: string;
-  tone?: string; // e.g., 'Excited', 'Whispering'
-  durationEstimate?: number; // Optional, for timeline visualization
+  tone: string;
+  durationEstimate: number;
+  voiceId?: string;
+  voiceName?: string;
+  audioUri?: string;
+}
+
+export interface ElevenLabsVoice {
+  voice_id: string;
+  name: string;
+  category: string;
+  preview_url: string;
+  labels?: Record<string, string>;
 }
 
 export type AspectRatio = '16:9' | '9:16';

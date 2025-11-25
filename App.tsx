@@ -94,6 +94,31 @@ const App: React.FC = () => {
 
   const maxStep = calculateMaxStep();
 
+  // --- GLOBAL SAVE & IMPORT ---
+  const saveProject = () => {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state));
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute("href", dataStr);
+    downloadAnchorNode.setAttribute("download", `storygen_project_${new Date().toISOString().slice(0, 10)}.json`);
+    document.body.appendChild(downloadAnchorNode);
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
+  };
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const json = JSON.parse(event.target?.result as string);
+        importProject(json);
+      } catch (err) { alert('Failed to load project file.'); }
+    };
+    reader.readAsText(file);
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 pb-20">
       <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
@@ -104,8 +129,43 @@ const App: React.FC = () => {
               StoryGen AI
             </span>
           </div>
-          <div className="hidden md:flex items-center gap-4 text-sm font-medium text-slate-500">
-            Powered by Gemini 2.5 Flash & Veo
+
+          <div className="flex items-center gap-4">
+            {/* Global Actions */}
+            <div className="flex items-center gap-2 mr-4 border-r border-slate-200 pr-4">
+              <button
+                onClick={saveProject}
+                className="text-xs font-bold text-slate-500 hover:text-indigo-600 flex items-center gap-1 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-200 transition-colors"
+                title="Save Project"
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                Save
+              </button>
+
+              <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".json" className="hidden" />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="text-xs font-bold text-slate-400 hover:text-indigo-600 flex items-center gap-1 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-200 transition-colors"
+                title="Import Project"
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                Import
+              </button>
+            </div>
+
+            {/* Debug Toggle */}
+            <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-200 hover:bg-slate-100 transition-colors">
+              <label className="relative inline-flex items-center cursor-pointer select-none gap-2">
+                <input
+                  type="checkbox"
+                  className="sr-only peer"
+                  checked={debugMode}
+                  onChange={(e) => setDebugMode(e.target.checked)}
+                />
+                <span className="text-xs font-bold text-slate-500 uppercase">Debug</span>
+                <div className="w-8 h-4 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:right-[2px] after:left-[calc(100%-16px)] peer-checked:after:left-[calc(100%-18px)] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-slate-800"></div>
+              </label>
+            </div>
           </div>
         </div>
       </header>
@@ -133,7 +193,6 @@ const App: React.FC = () => {
           {state.step === 1 && (
             <Step2Style
               stylePrompt={state.stylePrompt}
-
               onUpdate={updateState}
               onNext={nextStep}
               onBack={prevStep}

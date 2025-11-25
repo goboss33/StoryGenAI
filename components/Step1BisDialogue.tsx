@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
-import { AudioScriptItem, Pacing, StoryState } from '../types';
+import React, { useState, useEffect } from 'react';
+import { AudioScriptItem, Pacing, StoryState, ElevenLabsVoice } from '../types';
 import { generateAudioScript } from '../services/geminiService';
+import { generateSpeech } from '../services/elevenLabsService';
+import VoiceLibrarySidebar from './VoiceLibrarySidebar';
 
 interface Props {
     idea: string;
@@ -19,6 +21,11 @@ const Step1BisDialogue: React.FC<Props> = ({
 }) => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [generatingAudio, setGeneratingAudio] = useState<string | null>(null); // ID of item currently generating audio
+
+    // Sidebar State
+    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    const [activeItemId, setActiveItemId] = useState<string | null>(null); // ID of item currently selecting voice
 
     const handleGenerate = async () => {
         setLoading(true);
@@ -57,6 +64,53 @@ const Step1BisDialogue: React.FC<Props> = ({
         onUpdate({ audioScript: newScript });
     };
 
+    const handleGenerateAudio = async (item: AudioScriptItem) => {
+        if (!item.voiceId) {
+            alert("Please select a voice first.");
+            return;
+        }
+        if (!item.text) return;
+
+        setGeneratingAudio(item.id);
+        try {
+            const audioUri = await generateSpeech(item.text, item.voiceId);
+            handleUpdateItem(item.id, { audioUri });
+        } catch (err) {
+            console.error("Audio generation failed", err);
+            alert("Failed to generate audio. Check console for details.");
+        } finally {
+            setGeneratingAudio(null);
+        }
+    };
+
+    const assignVoiceToSpeaker = (speakerName: string, voiceId: string, voiceName: string) => {
+        const newScript = audioScript.map(item =>
+            item.speaker === speakerName ? { ...item, voiceId, voiceName } : item
+        );
+        onUpdate({ audioScript: newScript });
+    };
+
+    const openVoiceSelector = (itemId: string) => {
+        setActiveItemId(itemId);
+        setIsSidebarOpen(true);
+    };
+
+    const handleVoiceSelected = (voice: ElevenLabsVoice) => {
+        if (activeItemId) {
+            const item = audioScript.find(i => i.id === activeItemId);
+            if (item) {
+                handleUpdateItem(activeItemId, { voiceId: voice.voice_id, voiceName: voice.name } as any); // Casting as any to avoid TS error if voiceName isn't in type yet
+
+                // Optional: Ask to apply to all
+                setTimeout(() => {
+                    if (confirm(`Apply voice "${voice.name}" to all lines by ${item.speaker}?`)) {
+                        assignVoiceToSpeaker(item.speaker, voice.voice_id, voice.name);
+                    }
+                }, 100);
+            }
+        }
+    };
+
     const totalEstimatedDuration = audioScript.reduce((acc, item) => acc + (item.durationEstimate || 0), 0);
 
     return (
@@ -65,7 +119,7 @@ const Step1BisDialogue: React.FC<Props> = ({
             <div className="px-8 py-6 bg-white border-b border-slate-200 flex justify-between items-center shadow-sm z-10">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900">Scénario Audio</h1>
-                    <p className="text-slate-500 text-sm">Éditez les dialogues et la narration avant de passer aux visuels.</p>
+                    <p className="text-slate-500 text-sm">Éditez les dialogues, choisissez les voix et générez l'audio.</p>
                 </div>
                 <div className="flex items-center gap-4">
                     <div className="text-right">
@@ -116,27 +170,58 @@ const Step1BisDialogue: React.FC<Props> = ({
                         {audioScript.map((item, index) => (
                             <div key={item.id} className="relative group">
                                 {/* Timeline Dot */}
-                                <div className="absolute -left-[41px] top-6 w-5 h-5 rounded-full bg-white border-4 border-indigo-500 z-10"></div>
+                                <div className={`absolute -left-[41px] top-6 w-5 h-5 rounded-full border-4 z-10 ${item.audioUri ? 'bg-green-500 border-green-200' : 'bg-white border-indigo-500'}`}></div>
 
                                 {/* Card */}
                                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 hover:shadow-md transition-shadow group-hover:border-indigo-200">
                                     <div className="flex justify-between items-start mb-3">
-                                        <div className="flex gap-2">
+                                        <div className="flex gap-2 items-center flex-wrap">
                                             <input
                                                 value={item.speaker}
                                                 onChange={(e) => handleUpdateItem(item.id, { speaker: e.target.value })}
-                                                className="font-bold text-indigo-700 bg-transparent hover:bg-indigo-50 px-1 rounded outline-none w-40"
+                                                className="font-bold text-indigo-700 bg-transparent hover:bg-indigo-50 px-1 rounded outline-none w-32 sm:w-40"
                                                 placeholder="Speaker"
                                             />
                                             <input
                                                 value={item.tone || ''}
                                                 onChange={(e) => handleUpdateItem(item.id, { tone: e.target.value })}
-                                                className="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-1 rounded-full outline-none w-32 text-center"
+                                                className="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-1 rounded-full outline-none w-24 text-center"
                                                 placeholder="Tone"
                                             />
+
+                                            {/* Voice Selector Button */}
+                                            <button
+                                                onClick={() => openVoiceSelector(item.id)}
+                                                className={`flex items-center gap-1 text-xs border rounded px-3 py-1.5 transition-colors ${item.voiceId
+                                                        ? 'bg-indigo-50 border-indigo-200 text-indigo-700 font-medium'
+                                                        : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-300'
+                                                    }`}
+                                            >
+                                                {item.voiceId && (item as any).voiceName ? (item as any).voiceName : (item.voiceId ? 'Voice Selected' : 'Select Voice')}
+                                                <svg className="w-3 h-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                                            </button>
                                         </div>
+
                                         <div className="flex items-center gap-2">
                                             <span className="text-xs font-mono text-slate-400">~{item.durationEstimate}s</span>
+
+                                            {/* Generate Audio Button */}
+                                            <button
+                                                onClick={() => handleGenerateAudio(item)}
+                                                disabled={!item.voiceId || generatingAudio === item.id}
+                                                className={`p-1.5 rounded-full transition-colors ${item.audioUri
+                                                        ? 'text-green-600 bg-green-50 hover:bg-green-100'
+                                                        : 'text-indigo-600 bg-indigo-50 hover:bg-indigo-100'
+                                                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                                                title={item.audioUri ? "Regenerate Audio" : "Generate Audio"}
+                                            >
+                                                {generatingAudio === item.id ? (
+                                                    <span className="animate-spin block w-4 h-4 border-2 border-current border-t-transparent rounded-full"></span>
+                                                ) : (
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
+                                                )}
+                                            </button>
+
                                             <button
                                                 onClick={() => handleDeleteItem(item.id)}
                                                 className="text-slate-300 hover:text-red-500 p-1 transition-colors"
@@ -154,6 +239,13 @@ const Step1BisDialogue: React.FC<Props> = ({
                                         rows={Math.max(2, Math.ceil(item.text.length / 60))}
                                         placeholder="Write dialogue here..."
                                     />
+
+                                    {/* Audio Player */}
+                                    {item.audioUri && (
+                                        <div className="mt-3 pt-3 border-t border-slate-100">
+                                            <audio controls src={item.audioUri} className="w-full h-8" />
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* Add Button (Between items) */}
@@ -197,6 +289,14 @@ const Step1BisDialogue: React.FC<Props> = ({
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
                 </button>
             </div>
+
+            {/* Voice Library Sidebar */}
+            <VoiceLibrarySidebar
+                isOpen={isSidebarOpen}
+                onClose={() => setIsSidebarOpen(false)}
+                onSelectVoice={handleVoiceSelected}
+                currentVoiceId={activeItemId ? audioScript.find(i => i.id === activeItemId)?.voiceId : undefined}
+            />
         </div>
     );
 };

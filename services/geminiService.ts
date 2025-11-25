@@ -15,7 +15,7 @@ export const subscribeToDebugLog = (listener: LogListener) => {
   return () => { listeners = listeners.filter(l => l !== listener); };
 };
 
-const logDebug = (type: LogType, title: string, data: any) => {
+export const logDebug = (type: LogType, title: string, data: any) => {
   const payload = { type, title, data, timestamp: Date.now() };
   listeners.forEach(l => l(payload));
 };
