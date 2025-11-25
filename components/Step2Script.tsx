@@ -158,15 +158,12 @@ const Step2Script: React.FC<Props> = ({
 
     // Layout Mode State
     // Layout Mode State
-    type LayoutMode = 'list' | 'grid-9-16' | 'grid-1-1' | 'grid-4-3' | 'grid-3-4';
+    type LayoutMode = 'list' | 'grid-9-16';
 
     const getLayoutFromRatio = (ratio: AspectRatio): LayoutMode => {
         switch (ratio) {
             case '9:16': return 'grid-9-16';
-            case '1:1': return 'grid-1-1';
-            case '4:3': return 'grid-4-3';
-            case '3:4': return 'grid-3-4';
-            default: return 'list';
+            default: return 'list'; // Default to 16:9
         }
     };
 
@@ -180,12 +177,10 @@ const Step2Script: React.FC<Props> = ({
     const handleLayoutChange = (mode: LayoutMode) => {
         setLayoutMode(mode);
         let ratio: AspectRatio = '16:9';
-        switch (mode) {
-            case 'grid-9-16': ratio = '9:16'; break;
-            case 'grid-1-1': ratio = '1:1'; break;
-            case 'grid-4-3': ratio = '4:3'; break;
-            case 'grid-3-4': ratio = '3:4'; break;
+        if (mode === 'grid-9-16') {
+            ratio = '9:16';
         }
+        // For 'list' mode, ratio remains '16:9'
         onUpdateAspectRatio(ratio);
     };
 
@@ -902,33 +897,7 @@ COMPOSITION RULES:
                             >
                                 9:16
                             </button>
-                            <button
-                                onClick={() => handleLayoutChange('grid-1-1')}
-                                className={`px-3 py-2 rounded-lg text-sm font-bold border transition-all ${layoutMode === 'grid-1-1'
-                                    ? 'bg-slate-900 text-white border-slate-900 shadow-md'
-                                    : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
-                                    }`}
-                            >
-                                1:1
-                            </button>
-                            <button
-                                onClick={() => handleLayoutChange('grid-4-3')}
-                                className={`px-3 py-2 rounded-lg text-sm font-bold border transition-all ${layoutMode === 'grid-4-3'
-                                    ? 'bg-slate-900 text-white border-slate-900 shadow-md'
-                                    : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
-                                    }`}
-                            >
-                                4:3
-                            </button>
-                            <button
-                                onClick={() => handleLayoutChange('grid-3-4')}
-                                className={`px-3 py-2 rounded-lg text-sm font-bold border transition-all ${layoutMode === 'grid-3-4'
-                                    ? 'bg-slate-900 text-white border-slate-900 shadow-md'
-                                    : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
-                                    }`}
-                            >
-                                3:4
-                            </button>
+
                         </div>
 
                         {/* Global Flip Button */}

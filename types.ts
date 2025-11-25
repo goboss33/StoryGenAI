@@ -105,7 +105,7 @@ export interface StoryState {
   refineAnswers?: Record<string, string>;
 }
 
-export type AspectRatio = '16:9' | '9:16' | '1:1' | '4:3' | '3:4';
+export type AspectRatio = '16:9' | '9:16';
 
 export const PRESET_STYLES = [
   { name: 'Cinematic Realistic', prompt: 'Cinematic lighting, photorealistic, 8k, highly detailed, movie still' },
