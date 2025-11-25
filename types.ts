@@ -103,6 +103,15 @@ export interface StoryState {
   isAssetsGenerated: boolean;
   refineQuestions?: RefineQuestion[];
   refineAnswers?: Record<string, string>;
+  audioScript?: AudioScriptItem[];
+}
+
+export interface AudioScriptItem {
+  id: string;
+  speaker: string; // 'Narrator', 'Character Name', etc.
+  text: string;
+  tone?: string; // e.g., 'Excited', 'Whispering'
+  durationEstimate?: number; // Optional, for timeline visualization
 }
 
 export type AspectRatio = '16:9' | '9:16';

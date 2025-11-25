@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { StoryState } from './types';
 import Step1Idea from './components/Step1Idea';
 import Step2Style from './components/Step2Style';
+import Step1BisDialogue from './components/Step1BisDialogue';
 import Step2Script from './components/Step2Script';
 import { Steps } from './components/ui/Steps';
 import { subscribeToDebugLog, subscribeToUsage, UsageStats } from './services/geminiService';
@@ -71,7 +72,7 @@ const App: React.FC = () => {
       ...prev,
       script: [],
       assets: [],
-      step: 2
+      step: 3
     }));
   };
 
@@ -86,7 +87,8 @@ const App: React.FC = () => {
   const calculateMaxStep = () => {
     let max = 0;
     if (state.idea.length > 10) max = 1;
-    if (state.script.length > 0) max = 2;
+    if (state.stylePrompt) max = 2;
+    if (state.audioScript && state.audioScript.length > 0) max = 3;
     return max;
   };
 
@@ -141,6 +143,20 @@ const App: React.FC = () => {
           )}
 
           {state.step === 2 && (
+            <Step1BisDialogue
+              idea={state.idea}
+              totalDuration={state.totalDuration}
+              pacing={state.pacing}
+              language={state.language}
+              audioScript={state.audioScript}
+              onUpdate={updateState}
+              onBack={prevStep}
+              onNext={nextStep}
+              isNextStepReady={state.script.length > 0}
+            />
+          )}
+
+          {state.step === 3 && (
             <Step2Script
               idea={state.idea}
               totalDuration={state.totalDuration}
