@@ -243,6 +243,7 @@ const Step2Script: React.FC<Props> = ({
     const [generatingShotIds, setGeneratingShotIds] = useState<string[]>([]);
     const [playingVideoId, setPlayingVideoId] = useState<string | null>(null);
     const [selectedVideoModel, setSelectedVideoModel] = useState<string>('veo-3.1-generate-preview');
+    const [generateAudio, setGenerateAudio] = useState(false);
 
     const VIDEO_MODELS = [
         { id: 'veo-3.1-generate-preview', name: 'Veo 3.1 Preview (Google)', enabled: true },
@@ -721,7 +722,7 @@ COMPOSITION RULES:
                 const prompt = shot.veoMotionPrompt || shot.description;
 
                 // Replicate doesn't support "extension" in the same way yet (or we treat it as fresh gen for now)
-                result = await generateReplicateVideo(imageSource, prompt, aspectRatio);
+                result = await generateReplicateVideo(imageSource, prompt, aspectRatio, generateAudio);
 
             } else {
                 // Default: Google Veo (Gemini)
@@ -1384,11 +1385,31 @@ COMPOSITION RULES:
                                                             </div>
 
                                                             {/* Colonne Droite : Champ Animation Veo */}
-                                                            <div className="flex-1 min-w-0">
-                                                                <label className="flex items-center gap-1 text-[9px] font-bold text-indigo-300 uppercase tracking-wider mb-1">
-                                                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-                                                                    Motion Prompt (Veo)
-                                                                </label>
+                                                            <div className="flex-1 min-w-0 flex flex-col gap-2">
+                                                                <div className="flex items-center justify-between">
+                                                                    <label className="flex items-center gap-1 text-[9px] font-bold text-indigo-300 uppercase tracking-wider mb-1">
+                                                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                                                        Motion Prompt (Veo)
+                                                                    </label>
+
+                                                                    {/* Audio Checkbox - Only for Veo 3.1 Fast */}
+                                                                    {selectedVideoModel === 'veo-3.1-fast' && (
+                                                                        <label className="flex items-center gap-1.5 cursor-pointer group/audio">
+                                                                            <div className="relative">
+                                                                                <input
+                                                                                    type="checkbox"
+                                                                                    className="peer sr-only"
+                                                                                    checked={generateAudio}
+                                                                                    onChange={(e) => setGenerateAudio(e.target.checked)}
+                                                                                />
+                                                                                <div className="w-8 h-4 bg-slate-700 rounded-full peer-checked:bg-indigo-600 transition-colors border border-white/20"></div>
+                                                                                <div className="absolute left-0.5 top-0.5 w-3 h-3 bg-white rounded-full transition-transform peer-checked:translate-x-4"></div>
+                                                                            </div>
+                                                                            <span className="text-[9px] font-bold text-slate-300 group-hover/audio:text-white transition-colors">AUDIO</span>
+                                                                        </label>
+                                                                    )}
+                                                                </div>
+
                                                                 <textarea
                                                                     className="w-full h-14 bg-black/40 text-white text-xs border border-white/20 rounded p-2 resize-none outline-none focus:bg-black/80 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 backdrop-blur-sm transition-all placeholder:text-white/20 leading-tight"
                                                                     placeholder="Movement (e.g. Pan Right, Hair blowing...)"

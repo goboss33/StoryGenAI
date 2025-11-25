@@ -9,7 +9,8 @@ if (!REPLICATE_API_TOKEN) {
 export const generateReplicateVideo = async (
     imageUri: string,
     prompt: string,
-    aspectRatio: AspectRatio
+    aspectRatio: AspectRatio,
+    generateAudio: boolean = false
 ): Promise<{ localUri: string, remoteUri: string }> => {
     if (!REPLICATE_API_TOKEN) {
         throw new Error("Replicate API Token is missing. Please check your .env.local file.");
@@ -28,10 +29,12 @@ export const generateReplicateVideo = async (
         input: {
             image: imageUri,
             prompt: prompt,
+            generate_audio: generateAudio // Changed from with_audio based on Vertex API docs
         }
     };
 
     console.log("Generating video with Replicate (veo-3.1-fast)...");
+    console.log("Replicate Request Body:", JSON.stringify(body, null, 2));
 
     try {
         const response = await fetch(url, {
