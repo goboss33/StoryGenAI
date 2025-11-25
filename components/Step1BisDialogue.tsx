@@ -23,9 +23,18 @@ const Step1BisDialogue: React.FC<Props> = ({
     const [error, setError] = useState('');
     const [generatingAudio, setGeneratingAudio] = useState<string | null>(null);
     const [activeItemId, setActiveItemId] = useState<string | null>(null);
-    const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
     const [isGenerating, setIsGenerating] = useState(false);
-    const audioRef = useRef<HTMLAudioElement | null>(null);
+
+    // Sequencer State
+    const [isPlayingSequence, setIsPlayingSequence] = useState(false);
+    const [currentTime, setCurrentTime] = useState(0);
+    const [totalDurationState, setTotalDurationState] = useState(0);
+
+    // Calculate total duration whenever script changes
+    useEffect(() => {
+        const total = audioScript.reduce((acc, item) => acc + (item.durationEstimate || 0), 0);
+        setTotalDurationState(total);
+    }, [audioScript]);
 
     // Initialize active item if script exists
     useEffect(() => {
@@ -107,38 +116,86 @@ const Step1BisDialogue: React.FC<Props> = ({
 
     // --- Sequencer Logic ---
     const playSequence = async () => {
+        if (isPlayingSequence) {
+            setIsPlayingSequence(false);
+            return;
+        }
+
+        setIsPlayingSequence(true);
+        let accumulatedTime = 0;
+
         for (const item of audioScript) {
+            if (!isPlayingSequence) break; // Check if stopped (Note: this check inside loop might need ref refactoring for instant stop)
+
+            setActiveItemId(item.id);
+            setCurrentTime(accumulatedTime);
+
             if (item.isBreak) {
                 await new Promise(resolve => setTimeout(resolve, (item.durationEstimate || 1) * 1000));
-                continue;
-            }
-            if (item.audioUri) {
-                setActiveItemId(item.id);
+            } else if (item.audioUri) {
                 const audio = new Audio(item.audioUri);
                 await new Promise((resolve) => {
                     audio.onended = resolve;
                     audio.play();
                 });
+            } else {
+                // Simulate reading time if no audio
+                await new Promise(resolve => setTimeout(resolve, (item.durationEstimate || 2) * 1000));
             }
+
+            accumulatedTime += (item.durationEstimate || 0);
         }
+
+        setIsPlayingSequence(false);
         setActiveItemId(null);
+        setCurrentTime(0);
     };
 
     // --- Render Helpers ---
+    const formatTime = (seconds: number) => {
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    };
+
+    const renderWaveform = (item: AudioScriptItem, isActive: boolean) => {
+        // Deterministic pseudo-random height based on id
+        const getBarHeight = (index: number) => {
+            const seed = item.id.charCodeAt(index % item.id.length) + index;
+            return 20 + (seed % 60) + '%';
+        };
+
+        return (
+            <div className="flex items-end justify-center gap-[1px] h-full w-full px-1 opacity-80">
+                {Array.from({ length: Math.max(5, (item.durationEstimate || 2) * 3) }).map((_, i) => (
+                    <div
+                        key={i}
+                        className={`w-1 rounded-t-sm transition-all duration-300 ${isActive ? 'bg-indigo-500' : 'bg-slate-300'}`}
+                        style={{ height: getBarHeight(i) }}
+                    />
+                ))}
+            </div>
+        );
+    };
+
     const renderTimelineItem = (item: AudioScriptItem) => {
-        const width = Math.max(40, (item.durationEstimate || 2) * 20);
+        const width = Math.max(60, (item.durationEstimate || 2) * 30); // Wider items
         const isActive = activeItemId === item.id;
 
         if (item.isBreak) {
             return (
                 <div
                     key={item.id}
-                    className="h-full flex items-center justify-center relative group"
+                    className="h-full flex flex-col justify-end pb-2 relative group flex-shrink-0"
                     style={{ width: `${width}px` }}
                     title={`Break: ${item.durationEstimate}s`}
                 >
-                    <div className="w-full h-1 bg-slate-300 rounded-full opacity-50 group-hover:opacity-100 transition-opacity" />
-                    <span className="absolute text-[10px] text-slate-400 -top-4 opacity-0 group-hover:opacity-100">{item.durationEstimate}s</span>
+                    <div className="w-full h-8 flex items-center justify-center">
+                        <div className="w-full h-[2px] bg-slate-200 border-t border-dashed border-slate-400/50" />
+                    </div>
+                    <span className="absolute top-2 left-1/2 -translate-x-1/2 text-[10px] text-slate-400 font-mono opacity-0 group-hover:opacity-100 transition-opacity">
+                        {item.durationEstimate}s
+                    </span>
                 </div>
             );
         }
@@ -147,23 +204,27 @@ const Step1BisDialogue: React.FC<Props> = ({
             <div
                 key={item.id}
                 onClick={() => setActiveItemId(item.id)}
-                className={`h-12 rounded-md border flex items-center justify-center px-2 text-xs font-medium cursor-pointer transition-all whitespace-nowrap overflow-hidden text-ellipsis relative overflow-hidden
-                    ${isActive ? 'border-indigo-500 ring-2 ring-indigo-200 z-10' : 'border-slate-200 hover:border-indigo-300'}
-                    ${item.audioUri ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-white text-slate-600'}
+                className={`h-full flex flex-col relative group flex-shrink-0 cursor-pointer transition-colors border-r border-slate-100
+                    ${isActive ? 'bg-indigo-50' : 'bg-white hover:bg-slate-50'}
                 `}
                 style={{ width: `${width}px` }}
-                title={item.text}
             >
-                {/* Waveform Visualization (CSS Pattern) */}
-                {item.audioUri && (
-                    <div className="absolute inset-0 opacity-20 pointer-events-none"
-                        style={{
-                            backgroundImage: 'radial-gradient(circle, currentColor 1px, transparent 1px)',
-                            backgroundSize: '4px 4px'
-                        }}
-                    />
-                )}
-                <span className="relative z-10">{item.speaker}</span>
+                {/* Header (Speaker) */}
+                <div className={`px-2 py-1 text-[10px] font-bold truncate ${isActive ? 'text-indigo-600' : 'text-slate-500'}`}>
+                    {item.speaker}
+                </div>
+
+                {/* Waveform Area */}
+                <div className="flex-1 w-full relative">
+                    {item.audioUri ? renderWaveform(item, isActive) : (
+                        <div className="w-full h-full flex items-center justify-center text-[10px] text-slate-300 italic">
+                            Pending
+                        </div>
+                    )}
+                </div>
+
+                {/* Selection Indicator */}
+                {isActive && <div className="absolute bottom-0 left-0 right-0 h-1 bg-indigo-500" />}
             </div>
         );
     };
@@ -216,20 +277,10 @@ const Step1BisDialogue: React.FC<Props> = ({
                     <div className="flex items-center gap-4">
                         <h2 className="text-lg font-semibold text-slate-800">Audio Script</h2>
                         <span className="text-sm text-slate-500">
-                            {audioScript.length} lines • ~{audioScript.reduce((acc, item) => acc + (item.durationEstimate || 0), 0).toFixed(0)}s total
+                            {audioScript.length} lines • ~{totalDurationState.toFixed(0)}s total
                         </span>
                     </div>
                     <div className="flex items-center gap-2">
-                        <button
-                            onClick={playSequence}
-                            className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 text-sm font-medium transition-colors"
-                        >
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            Play All
-                        </button>
                         <button
                             onClick={handleGenerate}
                             disabled={isGenerating}
@@ -244,7 +295,7 @@ const Step1BisDialogue: React.FC<Props> = ({
                 </div>
 
                 {/* Scrollable Document Area (with padding for sticky timeline) */}
-                <div className="flex-1 overflow-y-auto p-8 pb-48 bg-slate-50">
+                <div className="flex-1 overflow-y-auto p-8 pb-64 bg-slate-50">
                     <div className="max-w-3xl mx-auto bg-white shadow-sm rounded-xl min-h-[800px] p-12 border border-slate-200">
                         {audioScript.map((item, index) => {
                             if (item.isBreak) {
@@ -348,19 +399,53 @@ const Step1BisDialogue: React.FC<Props> = ({
                     </div>
                 </div>
 
-                {/* STICKY BOTTOM TIMELINE */}
-                <div className="absolute bottom-0 left-0 right-0 h-32 bg-white/90 backdrop-blur-md border-t border-slate-200 flex-shrink-0 flex flex-col z-30 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.1)]">
-                    <div className="h-8 border-b border-slate-100 flex items-center px-4 justify-between text-xs text-slate-500">
-                        <span>Timeline Visualization</span>
-                        <div className="flex gap-4">
-                            <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-emerald-100 border border-emerald-300"></div> Audio Ready</span>
-                            <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-white border border-slate-300"></div> Pending</span>
-                            <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-slate-300 opacity-50"></div> Break</span>
+                {/* STICKY BOTTOM PLAYER & TIMELINE */}
+                <div className="fixed bottom-0 left-0 right-0 h-48 bg-white border-t border-slate-200 z-50 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.1)] flex flex-col">
+
+                    {/* Player Controls */}
+                    <div className="h-16 border-b border-slate-100 flex items-center justify-between px-8 bg-slate-50/50">
+                        <div className="flex items-center gap-4 w-1/3">
+                            <div className="text-xs font-mono text-slate-500">
+                                <span className="text-slate-900 font-bold">{formatTime(currentTime)}</span> / {formatTime(totalDurationState)}
+                            </div>
+                        </div>
+
+                        <div className="flex items-center justify-center gap-6 w-1/3">
+                            <button className="text-slate-400 hover:text-slate-600 transition-colors">
+                                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z" /></svg>
+                            </button>
+                            <button
+                                onClick={playSequence}
+                                className="w-12 h-12 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-lg hover:bg-indigo-700 hover:scale-105 transition-all"
+                            >
+                                {isPlayingSequence ? (
+                                    <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
+                                ) : (
+                                    <svg className="w-6 h-6 ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+                                )}
+                            </button>
+                            <button className="text-slate-400 hover:text-slate-600 transition-colors">
+                                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z" /></svg>
+                            </button>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-4 w-1/3">
+                            <div className="flex gap-4 text-[10px] text-slate-400 uppercase tracking-wider font-bold">
+                                <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-indigo-500"></div> Active</span>
+                                <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-slate-300"></div> Pending</span>
+                            </div>
                         </div>
                     </div>
-                    <div className="flex-1 overflow-x-auto custom-scrollbar p-4 relative">
-                        <div className="flex h-full items-center space-x-1 min-w-max px-4">
+
+                    {/* Timeline Track */}
+                    <div className="flex-1 overflow-x-auto custom-scrollbar relative bg-slate-50">
+                        <div className="flex h-full items-stretch min-w-max px-4">
                             {audioScript.map(renderTimelineItem)}
+                        </div>
+
+                        {/* Playhead (Visual only for now) */}
+                        <div className="absolute top-0 bottom-0 w-[1px] bg-red-500 z-20 pointer-events-none left-8" style={{ display: isPlayingSequence ? 'block' : 'none' }}>
+                            <div className="w-3 h-3 -ml-1.5 bg-red-500 rounded-full shadow-sm" />
                         </div>
                     </div>
                 </div>
