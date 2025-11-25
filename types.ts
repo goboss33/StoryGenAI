@@ -115,6 +115,7 @@ export interface AudioScriptItem {
   voiceId?: string;
   voiceName?: string;
   audioUri?: string;
+  isBreak?: boolean;
 }
 
 export interface ElevenLabsVoice {

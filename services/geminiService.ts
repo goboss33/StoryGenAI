@@ -82,50 +82,53 @@ export const generateAudioScript = async (
 ): Promise<import("../types").AudioScriptItem[]> => {
   try {
     const prompt = `
-      Role: Expert Screenwriter & Dialogue Coach.
-      Task: Write a compelling audio script (dialogue & narration) for a video based on the user's concept: "${idea}".
-      Constraints: 
-      - Total Duration: Approx ${totalDuration} seconds.
-      - Pacing: ${pacing} (affects word count and pause length).
-      - Language: ${language}.
-      
-      Instructions:
-      1. Break down the script into individual lines/segments.
-      2. Assign a Speaker to each line (e.g., "Narrator", "Character Name").
-      3. Write the Dialogue/Text.
-      4. Specify the Tone/Emotion (e.g., "Excited", "Somber", "Fast-paced").
-      5. Estimate the duration of each line in seconds.
-      
-      Output JSON format:
-      [
-        {
-          "id": "unique-id",
-          "speaker": "Speaker Name",
-          "text": "The actual spoken text.",
-          "tone": "Emotion/Style",
-          "durationEstimate": 3.5
-        }
-      ]
+    You are an expert audio drama scriptwriter.
+    Create a compelling audio script based on this idea: "${idea}"
+    
+    Constraints:
+    - Total Duration: ${totalDuration} seconds
+    - Pacing: ${pacing}
+    - Language: ${language}
+    - Format: JSON array of objects
+    
+    Each object must have:
+    - speaker: Name of the character or "Narrator"
+    - text: The dialogue or narration
+    - tone: Emotion/delivery instruction (e.g., "Whispering", "Excited")
+    - durationEstimate: Estimated seconds for this line
+    
+    CRITICAL:
+    - You MUST insert "Break" items to control pacing.
+    - To insert a break, use speaker="Break", text="[2s]", durationEstimate=2 (or desired duration).
+    - Use breaks to create dramatic pauses or transitions.
+    
+    Example JSON:
+    [
+        { "speaker": "Narrator", "text": "The wind howled.", "tone": "Ominous", "durationEstimate": 3 },
+        { "speaker": "Break", "text": "[2s]", "tone": "Silence", "durationEstimate": 2 },
+        { "speaker": "Hero", "text": "Is anyone there?", "tone": "Scared", "durationEstimate": 2 }
+    ]
     `;
+
+    const responseSchema = {
+      type: SchemaType.ARRAY,
+      items: {
+        type: SchemaType.OBJECT,
+        properties: {
+          speaker: { type: SchemaType.STRING },
+          text: { type: SchemaType.STRING },
+          tone: { type: SchemaType.STRING },
+          durationEstimate: { type: SchemaType.NUMBER }
+        },
+        required: ["speaker", "text", "tone", "durationEstimate"]
+      }
+    };
 
     const model = genAI.getGenerativeModel({
       model: "gemini-2.0-flash-exp",
       generationConfig: {
         responseMimeType: "application/json",
-        responseSchema: {
-          type: SchemaType.ARRAY,
-          items: {
-            type: SchemaType.OBJECT,
-            properties: {
-              id: { type: SchemaType.STRING },
-              speaker: { type: SchemaType.STRING },
-              text: { type: SchemaType.STRING },
-              tone: { type: SchemaType.STRING },
-              durationEstimate: { type: SchemaType.NUMBER },
-            },
-            required: ["id", "speaker", "text", "tone", "durationEstimate"],
-          },
-        },
+        responseSchema: responseSchema,
       },
     });
 
@@ -135,7 +138,13 @@ export const generateAudioScript = async (
     const json = response.text();
     logDebug('res', 'Generate Audio Script', { json });
 
-    const script = JSON.parse(json) as import("../types").AudioScriptItem[];
+    const rawScript = JSON.parse(json);
+
+    const script = rawScript.map((item: any) => ({
+      id: crypto.randomUUID(),
+      ...item,
+      isBreak: item.speaker === 'Break'
+    })) as import("../types").AudioScriptItem[];
 
     // Usage tracking (approximate)
     if (response.usageMetadata) {
@@ -372,7 +381,7 @@ export const generateScript = async (
     sequences.forEach((seq: any) => {
       const locAsset = assets.find(a => a.id === seq.locationId);
       const locationName = locAsset ? locAsset.name : "UNKNOWN";
-      const fullSlug = `${locationName} - ${seq.time || 'DAY'}`;
+      const fullSlug = `${locationName} - ${seq.time || 'DAY'} `;
       const groupSceneId = seq.id || crypto.randomUUID();
 
       (seq.shots || []).forEach((shot: any) => {
@@ -456,7 +465,7 @@ export const generateImage = async (
     // Check for InlineData (base64)
     if (part && part.inlineData && part.inlineData.data) {
       logDebug('res', 'Generate Image Success', { size: part.inlineData.data.length });
-      return `data:image/png;base64,${part.inlineData.data}`;
+      return `data: image / png; base64, ${part.inlineData.data} `;
     }
 
     throw new Error("No image data received from Gemini 3 Pro");
@@ -502,7 +511,7 @@ export const editImage = async (
 
     if (part && part.inlineData && part.inlineData.data) {
       logDebug('res', 'Edit Image Success', { size: part.inlineData.data.length });
-      return `data:image/png;base64,${part.inlineData.data}`;
+      return `data: image / png; base64, ${part.inlineData.data} `;
     }
     throw new Error("No image generated from edit");
   } catch (error) {
@@ -537,7 +546,7 @@ export const generateVideo = async (imageUri: string, prompt: string, aspectRati
 
   // Placeholder for Veo integration.
   // The original code had a structure that implied a `veoAi.models.generateVideos` method,
-  // which is not part of the standard `@google-generative-ai` SDK.
+  // which is not part of the standard `@google-generative - ai` SDK.
   // This section is being replaced with a placeholder to allow the code to compile.
   // A proper Veo integration would involve using the specific Veo API/SDK.
   console.warn("Veo video generation via standard SDK is not fully supported. Returning placeholder.");
@@ -742,5 +751,3 @@ export const generateRefinementQuestions = async (script: Scene[], stylePrompt: 
 export const generateBridgeScene = async (prevDesc: string, nextDesc: string, stylePrompt: string): Promise<{ description: string; narration: string }> => {
   return { description: "A transition", narration: "" };
 };
-
-
