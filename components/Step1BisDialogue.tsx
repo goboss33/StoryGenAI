@@ -226,19 +226,84 @@ const Step1BisDialogue: React.FC<Props> = ({
         return pixelOffset; // End of timeline
     };
 
-    const renderWaveform = (item: AudioScriptItem, isActive: boolean) => {
+    // Generate consistent color from string
+    const getSpeakerColor = (speaker: string) => {
+        if (speaker === 'Narrator') return { bg: 'bg-slate-100', border: 'border-slate-300', text: 'text-slate-700' };
+        // Simple hash-based pastel colors
+        const colors = [
+            { bg: 'bg-blue-100', border: 'border-blue-300', text: 'text-blue-700' },
+            { bg: 'bg-green-100', border: 'border-green-300', text: 'text-green-700' },
+            { bg: 'bg-purple-100', border: 'border-purple-300', text: 'text-purple-700' },
+            { bg: 'bg-orange-100', border: 'border-orange-300', text: 'text-orange-700' },
+            { bg: 'bg-pink-100', border: 'border-pink-300', text: 'text-pink-700' },
+            { bg: 'bg-teal-100', border: 'border-teal-300', text: 'text-teal-700' },
+        ];
+        let hash = 0;
+        for (let i = 0; i < speaker.length; i++) hash = speaker.charCodeAt(i) + ((hash << 5) - hash);
+        return colors[Math.abs(hash) % colors.length];
+    };
+
+    const handleTimelineScrub = (e: React.MouseEvent<HTMLDivElement>) => {
+        if (!scrollContainerRef.current) return;
+        const rect = scrollContainerRef.current.getBoundingClientRect();
+        const clickX = e.clientX - rect.left + scrollContainerRef.current.scrollLeft - 16; // -16 for padding
+
+        let accumulatedWidth = 0;
+        let accumulatedTime = 0;
+
+        for (const item of audioScript) {
+            const itemWidth = getItemWidth(item);
+            const itemDuration = item.durationEstimate || 2;
+
+            if (clickX >= accumulatedWidth && clickX < accumulatedWidth + itemWidth) {
+                const offsetInItem = clickX - accumulatedWidth;
+                const timeInItem = (offsetInItem / itemWidth) * itemDuration;
+                setCurrentTime(accumulatedTime + timeInItem);
+                setActiveItemId(item.id);
+                return;
+            }
+
+            accumulatedWidth += itemWidth;
+            accumulatedTime += itemDuration;
+        }
+    };
+
+    const handleResizeBreak = (e: React.MouseEvent, item: AudioScriptItem) => {
+        e.stopPropagation();
+        const startX = e.clientX;
+        const startDuration = item.durationEstimate || 2;
+
+        const handleMouseMove = (moveEvent: MouseEvent) => {
+            const diffX = moveEvent.clientX - startX;
+            const diffSeconds = Math.round(diffX / 30); // 30px per second
+            const newDuration = Math.max(1, startDuration + diffSeconds);
+            if (newDuration !== item.durationEstimate) {
+                handleUpdateItem(item.id, { durationEstimate: newDuration, text: `[${newDuration}s]` });
+            }
+        };
+
+        const handleMouseUp = () => {
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+        };
+
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+    };
+
+    const renderWaveform = (item: AudioScriptItem, isActive: boolean, colorClass: string) => {
         // Deterministic pseudo-random height based on id
         const getBarHeight = (index: number) => {
             const seed = item.id.charCodeAt(index % item.id.length) + index;
-            return 20 + (seed % 60) + '%';
+            return 20 + (seed % 70) + '%';
         };
 
         return (
-            <div className="flex items-end justify-center gap-[1px] h-full w-full px-1 opacity-80">
-                {Array.from({ length: Math.max(5, (item.durationEstimate || 2) * 3) }).map((_, i) => (
+            <div className="flex items-end justify-center gap-[2px] h-full w-full px-1 opacity-90 pb-1">
+                {Array.from({ length: Math.max(5, (item.durationEstimate || 2) * 2) }).map((_, i) => (
                     <div
                         key={i}
-                        className={`w-1 rounded-t-sm transition-all duration-300 ${isActive ? 'bg-indigo-500' : 'bg-slate-300'}`}
+                        className={`w-1.5 rounded-t-sm transition-all duration-300 ${isActive ? 'bg-slate-800' : 'bg-slate-400/60'}`}
                         style={{ height: getBarHeight(i) }}
                     />
                 ))}
@@ -249,22 +314,27 @@ const Step1BisDialogue: React.FC<Props> = ({
     const renderTimelineItem = (item: AudioScriptItem) => {
         const width = getItemWidth(item);
         const isActive = activeItemId === item.id;
+        const colors = getSpeakerColor(item.speaker);
 
         if (item.isBreak) {
             return (
                 <div
                     id={`timeline-item-${item.id}`}
                     key={item.id}
-                    className="h-full flex flex-col justify-end pb-2 relative group flex-shrink-0"
+                    className="h-full flex flex-col justify-center relative group flex-shrink-0 mx-[1px]"
                     style={{ width: `${width}px` }}
                     title={`Break: ${item.durationEstimate}s`}
                 >
-                    <div className="w-full h-8 flex items-center justify-center">
-                        <div className="w-full h-[2px] bg-slate-200 border-t border-dashed border-slate-400/50" />
+                    <div className="absolute inset-y-2 inset-x-0 bg-white border border-slate-200 rounded-md shadow-sm flex items-center justify-center">
+                        <span className="text-[10px] text-slate-400 font-mono select-none">{item.durationEstimate}s</span>
+                        {/* Resize Handle */}
+                        <div
+                            className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-slate-100 flex items-center justify-center"
+                            onMouseDown={(e) => handleResizeBreak(e, item)}
+                        >
+                            <div className="w-[2px] h-4 bg-slate-300 rounded-full" />
+                        </div>
                     </div>
-                    <span className="absolute top-2 left-1/2 -translate-x-1/2 text-[10px] text-slate-400 font-mono opacity-0 group-hover:opacity-100 transition-opacity">
-                        {item.durationEstimate}s
-                    </span>
                 </div>
             );
         }
@@ -274,27 +344,29 @@ const Step1BisDialogue: React.FC<Props> = ({
                 id={`timeline-item-${item.id}`}
                 key={item.id}
                 onClick={() => setActiveItemId(item.id)}
-                className={`h-full flex flex-col relative group flex-shrink-0 cursor-pointer transition-colors border-r border-slate-100
-                    ${isActive ? 'bg-indigo-50' : 'bg-white hover:bg-slate-50'}
+                className={`h-full flex flex-col relative group flex-shrink-0 cursor-pointer transition-all mx-[1px] rounded-lg overflow-hidden border
+                    ${isActive ? 'ring-2 ring-indigo-500 z-10' : 'hover:brightness-95'}
+                    ${item.audioUri ? colors.bg : 'bg-slate-50'}
+                    ${colors.border}
                 `}
-                style={{ width: `${width}px` }}
+                style={{
+                    width: `${width}px`,
+                    backgroundImage: !item.audioUri ? 'repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(0,0,0,0.03) 5px, rgba(0,0,0,0.03) 10px)' : 'none'
+                }}
             >
                 {/* Header (Speaker) */}
-                <div className={`px-2 py-1 text-[10px] font-bold truncate ${isActive ? 'text-indigo-600' : 'text-slate-500'}`}>
+                <div className={`px-2 py-1 text-[10px] font-bold truncate ${colors.text} bg-white/50`}>
                     {item.speaker}
                 </div>
 
                 {/* Waveform Area */}
-                <div className="flex-1 w-full relative">
-                    {item.audioUri ? renderWaveform(item, isActive) : (
-                        <div className="w-full h-full flex items-center justify-center text-[10px] text-slate-300 italic">
+                <div className="flex-1 w-full relative flex items-end">
+                    {item.audioUri ? renderWaveform(item, isActive, colors.text) : (
+                        <div className="w-full h-full flex items-center justify-center text-[10px] text-slate-400 italic select-none">
                             Pending
                         </div>
                     )}
                 </div>
-
-                {/* Selection Indicator */}
-                {isActive && <div className="absolute bottom-0 left-0 right-0 h-1 bg-indigo-500" />}
             </div>
         );
     };
@@ -352,6 +424,16 @@ const Step1BisDialogue: React.FC<Props> = ({
                     </div>
                     <div className="flex items-center gap-2">
                         <button
+                            onClick={playSequence}
+                            className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 text-sm font-medium transition-colors"
+                        >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            Play All
+                        </button>
+                        <button
                             onClick={handleGenerate}
                             disabled={isGenerating}
                             className="bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-md hover:bg-indigo-100 text-sm font-medium transition-colors"
@@ -365,7 +447,7 @@ const Step1BisDialogue: React.FC<Props> = ({
                 </div>
 
                 {/* Scrollable Document Area (with padding for sticky timeline) */}
-                <div className="flex-1 overflow-y-auto p-8 pb-64 bg-slate-50">
+                <div className="flex-1 overflow-y-auto p-8 pb-48 bg-slate-50">
                     <div className="max-w-3xl mx-auto bg-white shadow-sm rounded-xl min-h-[800px] p-12 border border-slate-200">
                         {audioScript.map((item, index) => {
                             if (item.isBreak) {
@@ -470,60 +552,58 @@ const Step1BisDialogue: React.FC<Props> = ({
                 </div>
 
                 {/* STICKY BOTTOM PLAYER & TIMELINE */}
-                <div className="fixed bottom-0 left-0 right-0 h-48 bg-white border-t border-slate-200 z-50 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.1)] flex flex-col">
+                <div className="fixed bottom-0 left-0 right-0 h-32 bg-white border-t border-slate-200 z-50 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.1)] flex flex-col">
 
                     {/* Player Controls */}
-                    <div className="h-16 border-b border-slate-100 flex items-center justify-between px-8 bg-slate-50/50">
+                    <div className="h-10 border-b border-slate-100 flex items-center justify-between px-8 bg-slate-50/50">
                         <div className="flex items-center gap-4 w-1/3">
                             <div className="text-xs font-mono text-slate-500">
                                 <span className="text-slate-900 font-bold">{formatTime(currentTime)}</span> / {formatTime(totalDurationState)}
                             </div>
                         </div>
 
-                        <div className="flex items-center justify-center gap-6 w-1/3">
+                        <div className="flex items-center justify-center gap-4 w-1/3">
                             <button className="text-slate-400 hover:text-slate-600 transition-colors">
-                                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z" /></svg>
+                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z" /></svg>
                             </button>
                             <button
                                 onClick={playSequence}
-                                className="w-12 h-12 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-lg hover:bg-indigo-700 hover:scale-105 transition-all"
+                                className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-lg hover:bg-indigo-700 hover:scale-105 transition-all"
                             >
                                 {isPlayingSequence ? (
-                                    <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
+                                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
                                 ) : (
-                                    <svg className="w-6 h-6 ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+                                    <svg className="w-4 h-4 ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
                                 )}
                             </button>
                             <button className="text-slate-400 hover:text-slate-600 transition-colors">
-                                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z" /></svg>
+                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z" /></svg>
                             </button>
                         </div>
 
                         <div className="flex items-center justify-end gap-4 w-1/3">
-                            <div className="flex gap-4 text-[10px] text-slate-400 uppercase tracking-wider font-bold">
-                                <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-indigo-500"></div> Active</span>
-                                <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-slate-300"></div> Pending</span>
-                            </div>
+                            {/* Zoom or other controls could go here */}
                         </div>
                     </div>
 
                     {/* Timeline Track */}
                     <div
                         ref={scrollContainerRef}
-                        className="flex-1 overflow-x-auto custom-scrollbar relative bg-slate-50"
+                        className="flex-1 overflow-x-auto custom-scrollbar relative bg-slate-100/50"
+                        onMouseDown={handleTimelineScrub}
                     >
-                        <div className="flex h-full items-stretch min-w-max px-4 relative">
+                        <div className="flex h-full items-center min-w-max px-4 relative py-2">
                             {audioScript.map(renderTimelineItem)}
 
                             {/* Playhead Overlay */}
                             <div
-                                className="absolute top-0 bottom-0 w-[2px] bg-red-500 z-30 pointer-events-none transition-all duration-100 ease-linear"
+                                className="absolute top-0 bottom-0 w-[2px] bg-red-500 z-30 pointer-events-none transition-all duration-75 ease-linear"
                                 style={{
                                     left: `${calculatePlayheadPosition() + 16}px`, // +16 for padding-left
-                                    display: isPlayingSequence ? 'block' : 'none'
+                                    display: 'block'
                                 }}
                             >
-                                <div className="w-3 h-3 -ml-1.5 bg-red-500 rounded-full shadow-sm mt-1" />
+                                <div className="w-3 h-3 -ml-1.5 bg-red-500 rounded-full shadow-sm mt-0" />
                             </div>
                         </div>
                     </div>
