@@ -1,6 +1,9 @@
 import { AspectRatio } from '../types';
 
 const REPLICATE_API_TOKEN = import.meta.env.VITE_REPLICATE_API_TOKEN;
+if (!REPLICATE_API_TOKEN) {
+    console.warn("VITE_REPLICATE_API_TOKEN is missing. Video generation with Replicate will fail.");
+}
 
 if (!REPLICATE_API_TOKEN) {
     console.warn("Missing VITE_REPLICATE_API_TOKEN in .env.local");

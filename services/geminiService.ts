@@ -1,9 +1,29 @@
-
-import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { Scene, Asset, AssetType, Pacing, RefineQuestion } from "../types";
 
-const apiKey = process.env.API_KEY || '';
-const genAI = new GoogleGenerativeAI(apiKey);
+// Define SchemaType locally to avoid import errors with older SDK versions
+const SchemaType = {
+  STRING: "STRING" as const,
+  NUMBER: "NUMBER" as const,
+  INTEGER: "INTEGER" as const,
+  BOOLEAN: "BOOLEAN" as const,
+  ARRAY: "ARRAY" as const,
+  OBJECT: "OBJECT" as const
+};
+
+// Robust API Key Retrieval
+// 1. Check VITE_GEMINI_API_KEY (Standard Vite)
+// 2. Check process.env.GEMINI_API_KEY (Defined in vite.config.ts)
+// 3. Check process.env.API_KEY (Legacy definition in vite.config.ts)
+const apiKey = import.meta.env.VITE_GEMINI_API_KEY ||
+  (process.env.GEMINI_API_KEY as string) ||
+  (process.env.API_KEY as string);
+
+if (!apiKey) {
+  console.error("CRITICAL: GEMINI_API_KEY is missing. Please check .env.local");
+}
+
+const genAI = new GoogleGenerativeAI(apiKey || "MISSING_KEY");
 
 // --- LOGGING INFRASTRUCTURE ---
 type LogType = 'req' | 'res' | 'info' | 'error';
@@ -165,24 +185,50 @@ export const generateScript = async (
   idea: string,
   totalDuration: number,
   pacing: Pacing,
-  language: string = 'English'
+  language: string = 'English',
+  audioScript: import("../types").AudioScriptItem[] = []
 ): Promise<{ script: Scene[], assets: Asset[] }> => {
   try {
+
+    // Serialize Audio Script for the prompt
+    const audioScriptText = JSON.stringify(audioScript.map(item => ({
+      speaker: item.speaker,
+      text: item.text,
+      duration: item.durationEstimate,
+      isBreak: item.isBreak
+    })));
 
     // NEW STRICT SYSTEM PROMPT (Hierarchy & Reusability Rules)
     let prompt = `
       Role: Expert Director & Production Asset Manager.
-      Task: Write a screenplay based on the user's concept: "${idea}". Then extract the PRODUCTION DATABASE (World Assets).
-      Constraints: ${totalDuration}s total duration, ${pacing} pacing, ${language} language.
-
-      PHASE 1: WRITE THE SCRIPT (Strict Spatial Segmentation)
-      - Write the script as a series of SEQUENCES.
+      Task: Create a VISUAL STORYBOARD (Screenplay) that perfectly matches the provided AUDIO SCRIPT.
       
-      **VISUAL DYNAMISM INSTRUCTION (${pacing.toUpperCase()} PACING):**
-      ${pacing === 'fast' ? "Use rapid cuts (2-4s), dynamic camera movements (whip pans, tracking), and high energy." :
-        pacing === 'slow' ? "Use long takes (6-10s), slow pans/zooms, and atmospheric focus." :
-          "Balance establishing shots (5s) with action cuts (3s)."}
+      INPUT CONTEXT:
+      - Concept: "${idea}"
+      - Total Duration: ${totalDuration}s
+      - Pacing: ${pacing}
+      - Language: ${language}
+      
+      AUDIO SCRIPT (SOURCE OF TRUTH):
+      ${audioScriptText}
 
+      INSTRUCTIONS:
+      1. **Synchronize Visuals**: You must create visual shots that correspond to the audio script. 
+         - A single dialogue line might need 1 shot, or multiple shots (e.g. cutting between characters).
+         - Ensure the total duration of your shots matches the audio script duration.
+      2. **Visual Dynamism**:
+         ${pacing === 'fast' ? "Use rapid cuts, dynamic camera movements, and high energy." :
+        pacing === 'slow' ? "Use long takes, slow pans/zooms, and atmospheric focus." :
+          "Balance establishing shots with action cuts."}
+      
+      PHASE 1: WRITE THE SCRIPT (Sequences & Shots)
+      - Group shots into SEQUENCES based on location/time.
+      - Every shot MUST have a 'duration'.
+      - **MODULAR ACTION DATA**:
+        - \`baseEnvironment\`: Describe ONLY the static environment/background (e.g., "A dark, misty forest with ancient trees").
+        - \`characterActions\`: List of objects { castId, action }. For EACH character in the shot, describe their specific action.
+        - \`itemStates\`: List of objects { itemId, state }. For EACH item in the shot, describe its state/position.
+      
       PHASE 2: EXTRACT THE WORLD (Relational Database)
       - Define unique LOCATIONS (Master & Sub-locations).
       - Define unique CHARACTERS (consistent appearance).
@@ -223,9 +269,40 @@ export const generateScript = async (
                     shotType: { type: SchemaType.STRING },
                     cameraAngle: { type: SchemaType.STRING },
                     movement: { type: SchemaType.STRING },
-                    compositionTags: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } }, // NEW ARRAY FIELD
+                    compositionTags: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
                     duration: { type: SchemaType.NUMBER },
-                    action: { type: SchemaType.STRING },
+                    description: { type: SchemaType.STRING },
+                    actionData: {
+                      type: SchemaType.OBJECT,
+                      properties: {
+                        baseEnvironment: { type: SchemaType.STRING },
+                        characterActions: {
+                          type: SchemaType.ARRAY,
+                          items: {
+                            type: SchemaType.OBJECT,
+                            properties: {
+                              castId: { type: SchemaType.STRING },
+                              action: { type: SchemaType.STRING }
+                            },
+                            required: ["castId", "action"]
+                          },
+                          nullable: true
+                        },
+                        itemStates: {
+                          type: SchemaType.ARRAY,
+                          items: {
+                            type: SchemaType.OBJECT,
+                            properties: {
+                              itemId: { type: SchemaType.STRING },
+                              state: { type: SchemaType.STRING }
+                            },
+                            required: ["itemId", "state"]
+                          },
+                          nullable: true
+                        }
+                      },
+                      required: ["baseEnvironment"]
+                    },
                     veoMotionPrompt: { type: SchemaType.STRING },
                     dialogue: { type: SchemaType.STRING },
                     sfx: { type: SchemaType.STRING },
@@ -233,7 +310,7 @@ export const generateScript = async (
                     castIds: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
                     itemIds: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } }
                   },
-                  required: ["shotType", "cameraAngle", "movement", "compositionTags", "duration", "action", "veoMotionPrompt", "dialogue", "sfx", "music", "castIds", "itemIds"]
+                  required: ["shotType", "cameraAngle", "movement", "compositionTags", "duration", "description", "actionData", "veoMotionPrompt", "dialogue", "sfx", "music", "castIds", "itemIds"]
                 }
               }
             },
@@ -549,21 +626,6 @@ export const generateVideo = async (imageUri: string, prompt: string, aspectRati
   // which is not part of the standard `@google-generative - ai` SDK.
   // This section is being replaced with a placeholder to allow the code to compile.
   // A proper Veo integration would involve using the specific Veo API/SDK.
-  console.warn("Veo video generation via standard SDK is not fully supported. Returning placeholder.");
-  trackUsage('veo-3.1-fast-generate-preview', 0, 0, 0.75); // Track mock usage
-  return "https://placehold.co/1280x720/mp4?text=Generated+Video";
-};
-
-// --- Helper: Upload File to Gemini (REST API) ---
-const uploadFileToGemini = async (blob: Blob, mimeType: string): Promise<string> => {
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) throw new Error("API Key not found");
-
-  // 1. Initiate Resumable Upload (or Simple Upload for smaller files)
-  // Using 'multipart' or 'media' upload type. For simplicity with fetch, we'll use the media upload endpoint if available,
-  // but the standard documented way for GenAI is often via the client SDK.
-  // Since we can't use the Node SDK, we use the REST endpoint:
-  // POST https://generativelanguage.googleapis.com/upload/v1beta/files?key=KEY
 
   // First, we need to get the size
   const numBytes = blob.size;

@@ -2,6 +2,9 @@ import { ElevenLabsVoice } from '../types';
 import { logDebug } from './geminiService';
 
 const API_KEY = import.meta.env.VITE_ELEVENLABS_API_KEY;
+if (!API_KEY) {
+    console.warn("VITE_ELEVENLABS_API_KEY is missing. Audio generation will fail.");
+}
 const BASE_URL = 'https://api.elevenlabs.io/v1';
 
 if (!API_KEY) {

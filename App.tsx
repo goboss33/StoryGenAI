@@ -222,6 +222,7 @@ const App: React.FC = () => {
               pacing={state.pacing}
               language={state.language}
               script={state.script}
+              audioScript={state.audioScript}
               assets={state.assets}
               stylePrompt={state.stylePrompt}
               aspectRatio={state.aspectRatio}

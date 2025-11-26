@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState, useMemo, useRef } from 'react';
-import { Scene, Pacing, Asset, AssetType, AspectRatio } from '../types';
+import { Scene, Pacing, Asset, AssetType, AspectRatio, AudioScriptItem } from '../types';
 import { generateScript, generateImage, editImage, generateMultimodalImage, generatePlanVideo, extendVideo } from '../services/geminiService';
 import { generateReplicateVideo } from '../services/replicateService';
 
@@ -10,6 +10,7 @@ interface Props {
     pacing: Pacing;
     language: string;
     script: Scene[];
+    audioScript: AudioScriptItem[];
     assets: Asset[];
     stylePrompt: string;
     aspectRatio: AspectRatio;
@@ -20,6 +21,45 @@ interface Props {
     onNext: () => void;
     isNextStepReady?: boolean;
 }
+
+// Helper to assemble dynamic prompt from modular action data
+const assembleActionPrompt = (shot: Scene, assets: Asset[]): string => {
+    if (!shot.actionData) return shot.description;
+
+    let prompt = shot.actionData.baseEnvironment;
+
+    // Add Character Actions
+    const activeCharacters = shot.usedAssetIds
+        .map(id => assets.find(a => a.id === id))
+        .filter(a => a?.type === AssetType.CHARACTER);
+
+    activeCharacters.forEach(char => {
+        // Safety check: ensure characterActions is an array before calling find
+        if (Array.isArray(shot.actionData?.characterActions)) {
+            const actionEntry = shot.actionData.characterActions.find(a => a.castId === char?.id);
+            if (char && actionEntry) {
+                prompt += `, ${char.name} is ${actionEntry.action}`;
+            }
+        }
+    });
+
+    // Add Item States
+    const activeItems = shot.usedAssetIds
+        .map(id => assets.find(a => a.id === id))
+        .filter(a => a?.type === AssetType.ITEM);
+
+    activeItems.forEach(item => {
+        // Safety check: ensure itemStates is an array before calling find
+        if (Array.isArray(shot.actionData?.itemStates)) {
+            const stateEntry = shot.actionData.itemStates.find(a => a.itemId === item?.id);
+            if (item && stateEntry) {
+                prompt += `, ${item.name} is ${stateEntry.state}`;
+            }
+        }
+    });
+
+    return prompt;
+};
 
 // Grouping helper
 interface SceneGroup {
@@ -147,7 +187,7 @@ const VisualAssetItem: React.FC<VisualAssetItemProps> = ({
 
 
 const Step2Script: React.FC<Props> = ({
-    idea, totalDuration, pacing, language, script, assets, stylePrompt, aspectRatio,
+    idea, totalDuration, pacing, language, script, audioScript, assets, stylePrompt, aspectRatio,
     onUpdateAspectRatio, onUpdateScript, onUpdateAssets, onBack, onNext, isNextStepReady
 }) => {
     const [loading, setLoading] = useState(false);
@@ -220,12 +260,8 @@ const Step2Script: React.FC<Props> = ({
     const imageRef = useRef<HTMLImageElement>(null);
     const [brushSize, setBrushSize] = useState(20);
 
-    useEffect(() => {
-        if (script.length === 0 && !loading && !error) {
-            generate();
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    // Auto-generation removed in favor of manual trigger
+    // useEffect(() => { ... }, []);
 
     // Reset canvas when entering inpainting mode
     useEffect(() => {
@@ -252,7 +288,7 @@ const Step2Script: React.FC<Props> = ({
         setLoading(true);
         setError('');
         try {
-            const result = await generateScript(idea, totalDuration, pacing, language);
+            const result = await generateScript(idea, totalDuration, pacing, language, audioScript);
             onUpdateAssets(result.assets);
             onUpdateScript(result.script);
         } catch (err: any) {
@@ -341,7 +377,8 @@ const Step2Script: React.FC<Props> = ({
                 if (idx >= 12) return; // Cap at 12
                 const r = Math.floor(idx / cols) + 1;
                 const c = (idx % cols) + 1;
-                panelsDesc += `Panel ${idx + 1}, R${r}C${c}: ${shot.shotType}, ${shot.cameraAngle}. ${shot.description}\n`;
+                const actionDesc = assembleActionPrompt(shot, assets);
+                panelsDesc += `Panel ${idx + 1}, R${r}C${c}: ${shot.shotType}, ${shot.cameraAngle}. ${actionDesc}\n`;
             });
 
 
@@ -734,7 +771,7 @@ COMPOSITION RULES:
                     if (!imageSource) {
                         throw new Error("Shot needs an image (or storyboard panel) to generate video.");
                     }
-                    const prompt = shot.veoMotionPrompt || shot.description;
+                    const prompt = shot.veoMotionPrompt || assembleActionPrompt(shot, assets);
                     result = await generatePlanVideo(imageSource, prompt, aspectRatio, shot.duration);
                 }
             }
@@ -829,6 +866,30 @@ COMPOSITION RULES:
         a.click();
         URL.revokeObjectURL(url);
     };
+
+    if (script.length === 0 && !loading && !error) {
+        return (
+            <div className="flex flex-col items-center justify-center h-[600px] text-center px-4">
+                <div className="w-24 h-24 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mb-6 shadow-sm">
+                    <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                </div>
+                <h2 className="text-3xl font-bold text-slate-900 mb-3">Production Studio</h2>
+                <p className="text-slate-500 max-w-lg mb-8 text-lg">
+                    Ready to visualize your story? We'll use your audio script to generate a shot-by-shot storyboard, perfectly timed to your dialogue.
+                </p>
+                <div className="flex gap-4">
+                    <button onClick={onBack} className="px-6 py-3 rounded-xl text-slate-500 hover:bg-slate-100 font-medium">Back to Script</button>
+                    <button
+                        onClick={generate}
+                        className="px-8 py-4 bg-indigo-600 text-white text-lg rounded-xl font-bold shadow-xl hover:bg-indigo-700 hover:scale-105 transition-all flex items-center gap-3"
+                    >
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
+                        Generate Storyboard
+                    </button>
+                </div>
+            </div>
+        );
+    }
 
     if (error) {
         return (
