@@ -109,7 +109,19 @@ const Step1BisDialogue: React.FC<Props> = ({
         setGeneratingAudio(item.id);
         try {
             const audioUri = await generateSpeech(item.text, item.voiceId);
+
+            // Create a temporary audio element to get duration
+            const tempAudio = new Audio(audioUri);
+            tempAudio.onloadedmetadata = () => {
+                const actualDuration = Math.ceil(tempAudio.duration);
+                handleUpdateItem(item.id, {
+                    audioUri,
+                    durationEstimate: actualDuration
+                });
+            };
+            // Fallback if metadata fails to load quickly, still save URI
             handleUpdateItem(item.id, { audioUri });
+
         } catch (err) {
             console.error("Audio generation failed", err);
             alert("Failed to generate audio. Check console for details.");
@@ -120,9 +132,16 @@ const Step1BisDialogue: React.FC<Props> = ({
 
     const handleVoiceSelect = (voice: ElevenLabsVoice) => {
         if (activeItemId) {
-            const item = audioScript.find(i => i.id === activeItemId);
-            if (item) {
-                handleUpdateItem(activeItemId, { voiceId: voice.voice_id, voiceName: voice.name });
+            const currentItem = audioScript.find(i => i.id === activeItemId);
+            if (currentItem) {
+                // Update ALL items with the same speaker
+                const newScript = audioScript.map(item => {
+                    if (item.speaker === currentItem.speaker && !item.isBreak) {
+                        return { ...item, voiceId: voice.voice_id, voiceName: voice.name };
+                    }
+                    return item;
+                });
+                onUpdate({ audioScript: newScript });
             }
         }
     };
@@ -418,7 +437,7 @@ const Step1BisDialogue: React.FC<Props> = ({
         }
 
         return (
-            <div className="h-6 w-full relative mb-1 pointer-events-none">
+            <div className="absolute top-0 left-4 right-0 h-6 pointer-events-none z-10">
                 {ticks}
             </div>
         );
@@ -512,7 +531,7 @@ const Step1BisDialogue: React.FC<Props> = ({
     }
 
     return (
-        <div className="flex h-[calc(100vh-140px)] bg-slate-50 overflow-hidden relative">
+        <div className="flex h-full bg-slate-50 overflow-hidden relative">
             {/* LEFT SIDEBAR: VOICE LIBRARY */}
             <div className="w-80 flex-shrink-0 border-r border-slate-200 bg-white z-10 flex flex-col h-full">
                 <VoiceLibrarySidebar
@@ -584,6 +603,7 @@ const Step1BisDialogue: React.FC<Props> = ({
                                     onClick={() => setActiveItemId(item.id)}
                                     className={`group relative flex gap-6 mb-6 p-4 rounded-lg transition-all border-2
                                         ${activeItemId === item.id ? 'bg-indigo-50/30 border-indigo-100 shadow-sm' : 'border-transparent hover:bg-slate-50'}
+                                        ${!item.audioUri ? 'opacity-70 bg-slate-50 border-dashed border-slate-300' : 'bg-white'}
                                     `}
                                 >
                                     {/* Left Margin: Avatar */}
@@ -591,11 +611,12 @@ const Step1BisDialogue: React.FC<Props> = ({
                                         <div
                                             className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold shadow-sm ring-2 ring-white
                                                 ${item.speaker === 'Narrator' ? 'bg-slate-100 text-slate-600' : 'bg-indigo-100 text-indigo-600'}
+                                                ${!item.audioUri ? 'opacity-50 grayscale' : ''}
                                             `}
                                         >
                                             {item.speaker.substring(0, 2).toUpperCase()}
                                         </div>
-                                        {item.audioUri && (
+                                        {item.audioUri ? (
                                             <button
                                                 onClick={(e) => { e.stopPropagation(); const audio = new Audio(item.audioUri); audio.play(); }}
                                                 className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center hover:bg-emerald-200 transition-colors"
@@ -604,6 +625,12 @@ const Step1BisDialogue: React.FC<Props> = ({
                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
                                                 </svg>
                                             </button>
+                                        ) : (
+                                            <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-400">
+                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                </svg>
+                                            </div>
                                         )}
                                     </div>
 
@@ -634,7 +661,9 @@ const Step1BisDialogue: React.FC<Props> = ({
                                         <textarea
                                             value={item.text}
                                             onChange={(e) => handleUpdateItem(item.id, { text: e.target.value })}
-                                            className="w-full bg-transparent resize-none focus:outline-none text-slate-800 leading-relaxed p-0 border-none focus:ring-0"
+                                            className={`w-full bg-transparent resize-none focus:outline-none leading-relaxed p-0 border-none focus:ring-0
+                                                ${!item.audioUri ? 'text-slate-500 italic' : 'text-slate-800'}
+                                            `}
                                             rows={Math.max(2, Math.ceil(item.text.length / 80))}
                                             placeholder="Type dialogue here..."
                                         />
@@ -662,68 +691,68 @@ const Step1BisDialogue: React.FC<Props> = ({
                         })}
                     </div>
                 </div>
+            </div>
 
-                {/* STICKY BOTTOM PLAYER & TIMELINE */}
-                <div className="fixed bottom-0 left-0 right-0 h-48 bg-white border-t border-slate-200 z-50 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.1)] flex flex-col">
+            {/* STICKY BOTTOM PLAYER & TIMELINE */}
+            <div className="absolute bottom-0 left-0 right-0 h-48 bg-white border-t border-slate-200 z-50 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.1)] flex flex-col">
 
-                    {/* Player Controls */}
-                    <div className="h-16 border-b border-slate-100 flex items-center justify-between px-8 bg-slate-50/50">
-                        <div className="flex items-center gap-4 w-1/3">
-                            <div className="text-xs font-mono text-slate-500">
-                                <span className="text-slate-900 font-bold">{formatTime(currentTime)}</span> / {formatTime(totalDurationState)}
-                            </div>
-                        </div>
-
-                        <div className="flex items-center justify-center gap-6 w-1/3">
-                            <button className="text-slate-400 hover:text-slate-600 transition-colors">
-                                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z" /></svg>
-                            </button>
-                            <button
-                                onClick={playSequence}
-                                className="w-12 h-12 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-lg hover:bg-indigo-700 hover:scale-105 transition-all"
-                            >
-                                {isPlayingSequence ? (
-                                    <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
-                                ) : (
-                                    <svg className="w-6 h-6 ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
-                                )}
-                            </button>
-                            <button className="text-slate-400 hover:text-slate-600 transition-colors">
-                                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z" /></svg>
-                            </button>
-                        </div>
-
-                        <div className="flex items-center justify-end gap-4 w-1/3">
-                            <div className="flex gap-4 text-[10px] text-slate-400 uppercase tracking-wider font-bold">
-                                <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-indigo-500"></div> Active</span>
-                                <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-slate-300"></div> Pending</span>
-                            </div>
+                {/* Player Controls */}
+                <div className="h-16 border-b border-slate-100 flex items-center justify-between px-8 bg-slate-50/50">
+                    <div className="flex items-center gap-4 w-1/3">
+                        <div className="text-xs font-mono text-slate-500">
+                            <span className="text-slate-900 font-bold">{formatTime(currentTime)}</span> / {formatTime(totalDurationState)}
                         </div>
                     </div>
 
-                    {/* Timeline Track */}
-                    <div
-                        ref={scrollContainerRef}
-                        className="flex-1 overflow-x-auto custom-scrollbar relative bg-slate-50"
-                        onMouseDown={handleTimelineMouseDown}
-                    >
-                        <div className="flex h-full items-stretch min-w-max px-4 relative pt-6 pb-2">
-                            {/* Time Ruler */}
-                            {renderTimeRuler()}
+                    <div className="flex items-center justify-center gap-6 w-1/3">
+                        <button className="text-slate-400 hover:text-slate-600 transition-colors">
+                            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z" /></svg>
+                        </button>
+                        <button
+                            onClick={playSequence}
+                            className="w-12 h-12 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-lg hover:bg-indigo-700 hover:scale-105 transition-all"
+                        >
+                            {isPlayingSequence ? (
+                                <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
+                            ) : (
+                                <svg className="w-6 h-6 ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+                            )}
+                        </button>
+                        <button className="text-slate-400 hover:text-slate-600 transition-colors">
+                            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z" /></svg>
+                        </button>
+                    </div>
 
-                            {audioScript.map(renderTimelineItem)}
+                    <div className="flex items-center justify-end gap-4 w-1/3">
+                        <div className="flex gap-4 text-[10px] text-slate-400 uppercase tracking-wider font-bold">
+                            <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-indigo-500"></div> Active</span>
+                            <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-slate-300"></div> Pending</span>
+                        </div>
+                    </div>
+                </div>
 
-                            {/* Playhead Overlay */}
-                            <div
-                                ref={playheadRef}
-                                className="absolute top-0 bottom-0 w-[2px] bg-red-500 z-30 pointer-events-none transition-none"
-                                style={{
-                                    left: '16px', // Initial padding offset
-                                    display: 'block'
-                                }}
-                            >
-                                <div className="w-3 h-3 -ml-1.5 bg-red-500 rounded-full shadow-sm mt-6" />
-                            </div>
+                {/* Timeline Track */}
+                <div
+                    ref={scrollContainerRef}
+                    className="flex-1 overflow-x-auto custom-scrollbar relative bg-slate-50"
+                    onMouseDown={handleTimelineMouseDown}
+                >
+                    <div className="flex h-full items-stretch min-w-max px-4 relative pt-6 pb-2">
+                        {/* Time Ruler */}
+                        {renderTimeRuler()}
+
+                        {audioScript.map(renderTimelineItem)}
+
+                        {/* Playhead Overlay */}
+                        <div
+                            ref={playheadRef}
+                            className="absolute top-0 bottom-0 w-[2px] bg-red-500 z-30 pointer-events-none transition-none"
+                            style={{
+                                left: '16px', // Initial padding offset
+                                display: 'block'
+                            }}
+                        >
+                            <div className="w-3 h-3 -ml-1.5 bg-red-500 rounded-full shadow-sm mt-6" />
                         </div>
                     </div>
                 </div>

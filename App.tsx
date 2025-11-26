@@ -120,8 +120,8 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 pb-20">
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
+    <div className="h-screen flex flex-col bg-slate-50 text-slate-900 overflow-hidden">
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-50 flex-shrink-0">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold">S</div>
@@ -170,12 +170,12 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      <main className={`max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 ${debugMode ? 'pb-[420px]' : ''}`}>
-        <div className="mb-10">
+      <main className={`flex-1 flex flex-col min-h-0 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full ${debugMode ? 'pb-[420px]' : ''}`}>
+        <div className="flex-shrink-0 mb-6">
           <Steps currentStep={state.step} maxStep={maxStep} onStepClick={goToStep} />
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 md:p-8 min-h-[700px] flex flex-col">
+        <div className={`flex-1 flex flex-col min-h-0 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden ${state.step === 2 ? 'p-0' : 'p-4 md:p-8'}`}>
           {state.step === 0 && (
             <Step1Idea
               idea={state.idea}
