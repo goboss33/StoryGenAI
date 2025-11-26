@@ -25,6 +25,45 @@ if (!apiKey) {
 
 const genAI = new GoogleGenerativeAI(apiKey || "MISSING_KEY");
 
+// Helper to assemble dynamic prompt from modular action data
+export const assembleActionPrompt = (shot: Scene, assets: Asset[]): string => {
+  if (!shot.actionData) return "";
+
+  let prompt = shot.actionData.baseEnvironment;
+
+  // Add Character Actions
+  const activeCharacters = shot.usedAssetIds
+    .map(id => assets.find(a => a.id === id))
+    .filter(a => a?.type === AssetType.CHARACTER);
+
+  activeCharacters.forEach(char => {
+    // Safety check: ensure characterActions is an array before calling find
+    if (Array.isArray(shot.actionData?.characterActions)) {
+      const actionEntry = shot.actionData.characterActions.find(a => a.castId === char?.id);
+      if (char && actionEntry) {
+        prompt += `, ${char.name} is ${actionEntry.action}`;
+      }
+    }
+  });
+
+  // Add Item States
+  const activeItems = shot.usedAssetIds
+    .map(id => assets.find(a => a.id === id))
+    .filter(a => a?.type === AssetType.ITEM);
+
+  activeItems.forEach(item => {
+    // Safety check: ensure itemStates is an array before calling find
+    if (Array.isArray(shot.actionData?.itemStates)) {
+      const stateEntry = shot.actionData.itemStates.find(a => a.itemId === item?.id);
+      if (item && stateEntry) {
+        prompt += `, ${item.name} is ${stateEntry.state}`;
+      }
+    }
+  });
+
+  return prompt;
+};
+
 // --- LOGGING INFRASTRUCTURE ---
 type LogType = 'req' | 'res' | 'info' | 'error';
 type LogListener = (log: { type: LogType; title: string; data: any; timestamp: number }) => void;
@@ -271,7 +310,7 @@ export const generateScript = async (
                     movement: { type: SchemaType.STRING },
                     compositionTags: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
                     duration: { type: SchemaType.NUMBER },
-                    description: { type: SchemaType.STRING },
+                    // description: { type: SchemaType.STRING }, // REMOVED
                     actionData: {
                       type: SchemaType.OBJECT,
                       properties: {
@@ -310,7 +349,7 @@ export const generateScript = async (
                     castIds: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
                     itemIds: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } }
                   },
-                  required: ["shotType", "cameraAngle", "movement", "compositionTags", "duration", "description", "actionData", "veoMotionPrompt", "dialogue", "sfx", "music", "castIds", "itemIds"]
+                  required: ["shotType", "cameraAngle", "movement", "compositionTags", "duration", "actionData", "veoMotionPrompt", "dialogue", "sfx", "music", "castIds", "itemIds"]
                 }
               }
             },
@@ -480,7 +519,7 @@ export const generateScript = async (
           cameraAngle: shot.cameraAngle || "Eye Level",
           cameraMovement: shot.movement || "Static",
           compositionTags: shot.compositionTags || [], // Map New Field
-          description: shot.action || "",
+          // description: shot.action || "", // REMOVED: Use actionData instead
           veoMotionPrompt: shot.veoMotionPrompt || "",
           lighting: seq.lighting || "Natural",
           weather: seq.weather || "Clear",
@@ -626,48 +665,11 @@ export const generateVideo = async (imageUri: string, prompt: string, aspectRati
   // which is not part of the standard `@google-generative - ai` SDK.
   // This section is being replaced with a placeholder to allow the code to compile.
   // A proper Veo integration would involve using the specific Veo API/SDK.
+  console.warn("Veo video generation via standard SDK is not fully supported. Returning placeholder.");
+  trackUsage('veo-3.1-fast-generate-preview', 0, 0, 0.75); // Track mock usage
+  return "https://placehold.co/1280x720/mp4?text=Generated+Video";
 
-  // First, we need to get the size
-  const numBytes = blob.size;
 
-  // Initial request to get the upload URL (Resumable upload protocol)
-  const initRes = await fetch(`https://generativelanguage.googleapis.com/upload/v1beta/files?key=${apiKey}`, {
-    method: 'POST',
-    headers: {
-      'X-Goog-Upload-Protocol': 'resumable',
-      'X-Goog-Upload-Command': 'start',
-      'X-Goog-Upload-Header-Content-Length': numBytes.toString(),
-      'X-Goog-Upload-Header-Content-Type': mimeType,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ file: { displayName: `storygen_video_${Date.now()}` } })
-  });
-
-  if (!initRes.ok) throw new Error(`Failed to initiate upload: ${initRes.statusText}`);
-
-  const uploadUrl = initRes.headers.get('x-goog-upload-url');
-  if (!uploadUrl) throw new Error("No upload URL returned");
-
-  // 2. Upload the actual bytes
-  const uploadRes = await fetch(uploadUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Length': numBytes.toString(),
-      'X-Goog-Upload-Offset': '0',
-      'X-Goog-Upload-Command': 'upload, finalize'
-    },
-    body: blob
-  });
-
-  if (!uploadRes.ok) throw new Error(`Failed to upload file bytes: ${uploadRes.statusText}`);
-
-  const uploadResult = await uploadRes.json();
-  const fileUri = uploadResult.file?.uri;
-
-  if (!fileUri) throw new Error("No file URI returned after upload");
-
-  logDebug('info', 'File Uploaded to Gemini', { fileUri });
-  return fileUri;
 };
 
 // --- 5b. Generate Plan Video (Veo 3.1 Preview with Duration) ---

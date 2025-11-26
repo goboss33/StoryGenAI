@@ -1,7 +1,6 @@
-
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { Scene, Pacing, Asset, AssetType, AspectRatio, AudioScriptItem } from '../types';
-import { generateScript, generateImage, editImage, generateMultimodalImage, generatePlanVideo, extendVideo } from '../services/geminiService';
+import { generateScript, generateImage, editImage, generateMultimodalImage, generatePlanVideo, extendVideo, assembleActionPrompt } from '../services/geminiService';
 import { generateReplicateVideo } from '../services/replicateService';
 
 interface Props {
@@ -22,44 +21,7 @@ interface Props {
     isNextStepReady?: boolean;
 }
 
-// Helper to assemble dynamic prompt from modular action data
-const assembleActionPrompt = (shot: Scene, assets: Asset[]): string => {
-    if (!shot.actionData) return shot.description;
 
-    let prompt = shot.actionData.baseEnvironment;
-
-    // Add Character Actions
-    const activeCharacters = shot.usedAssetIds
-        .map(id => assets.find(a => a.id === id))
-        .filter(a => a?.type === AssetType.CHARACTER);
-
-    activeCharacters.forEach(char => {
-        // Safety check: ensure characterActions is an array before calling find
-        if (Array.isArray(shot.actionData?.characterActions)) {
-            const actionEntry = shot.actionData.characterActions.find(a => a.castId === char?.id);
-            if (char && actionEntry) {
-                prompt += `, ${char.name} is ${actionEntry.action}`;
-            }
-        }
-    });
-
-    // Add Item States
-    const activeItems = shot.usedAssetIds
-        .map(id => assets.find(a => a.id === id))
-        .filter(a => a?.type === AssetType.ITEM);
-
-    activeItems.forEach(item => {
-        // Safety check: ensure itemStates is an array before calling find
-        if (Array.isArray(shot.actionData?.itemStates)) {
-            const stateEntry = shot.actionData.itemStates.find(a => a.itemId === item?.id);
-            if (item && stateEntry) {
-                prompt += `, ${item.name} is ${stateEntry.state}`;
-            }
-        }
-    });
-
-    return prompt;
-};
 
 // Grouping helper
 interface SceneGroup {
@@ -807,7 +769,7 @@ COMPOSITION RULES:
                         throw new Error(`Shot ${shot.number} needs an image to start the scene video.`);
                     }
                     // Use Veo Motion Prompt or description
-                    const prompt = shot.veoMotionPrompt || shot.description;
+                    const prompt = shot.veoMotionPrompt || assembleActionPrompt(shot, assets);
                     const { localUri, remoteUri } = await generatePlanVideo(imageSource, prompt, aspectRatio, shot.duration);
 
                     previousRemoteUri = remoteUri;
@@ -821,7 +783,7 @@ COMPOSITION RULES:
                         throw new Error(`Cannot extend video for shot ${shot.number}: previous shot has no remote URI.`);
                     }
 
-                    const prompt = shot.veoMotionPrompt || shot.description;
+                    const prompt = shot.veoMotionPrompt || assembleActionPrompt(shot, assets);
                     // Extend
                     const { localUri, remoteUri } = await extendVideo(previousRemoteUri, prompt, aspectRatio);
 
@@ -1218,7 +1180,7 @@ COMPOSITION RULES:
 
                                                         <div>
                                                             <label className="text-[11px] font-extrabold text-slate-900 uppercase tracking-widest mb-1.5 block">Action</label>
-                                                            <textarea className="w-full p-3 border border-slate-200 rounded-lg text-sm text-slate-800 font-medium leading-relaxed shadow-sm focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 outline-none min-h-[80px] resize-y" value={shot.description} onChange={(e) => updateShot(shot.id, { description: e.target.value })} />
+                                                            <textarea className="w-full p-3 border border-slate-200 rounded-lg text-sm text-slate-800 font-medium leading-relaxed shadow-sm focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 outline-none min-h-[80px] resize-y" value={shot.actionData?.baseEnvironment || ""} onChange={(e) => updateShot(shot.id, { actionData: { ...shot.actionData!, baseEnvironment: e.target.value } })} />
                                                         </div>
                                                         <div className="grid grid-cols-1 gap-3">
                                                             <div>

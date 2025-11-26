@@ -2,7 +2,16 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 
-class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean, error: any }> {
+interface ErrorBoundaryProps {
+    children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+    hasError: boolean;
+    error: any;
+}
+
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
     constructor(props: any) {
         super(props);
         this.state = { hasError: false, error: null };

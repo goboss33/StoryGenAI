@@ -17,7 +17,8 @@ export interface Scene {
   compositionTags: string[]; // Replaces visualStyle
 
   // 3. Visual Action
-  description: string; // Kept for backward compatibility / summary
+  // 3. Visual Action
+  // description: string; // REMOVED: Use actionData instead
   actionData?: {
     baseEnvironment: string;
     characterActions: { castId: string; action: string }[];
