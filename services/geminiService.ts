@@ -187,7 +187,7 @@ export const generateAudioScript = async (
       model: "gemini-2.0-flash-exp",
       generationConfig: {
         responseMimeType: "application/json",
-        responseSchema: responseSchema,
+        responseSchema: responseSchema as any,
       },
     });
 
@@ -558,18 +558,14 @@ export const generateImage = async (
     if (!prompt || prompt.trim().length === 0) throw new Error("Prompt cannot be empty");
     const cleanPrompt = prompt.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
 
-    const config: any = {
-      responseMimeType: "image/png"
-    };
-
+    let finalPrompt = cleanPrompt;
     if (aspectRatio) {
-      // config.imageConfig = { aspectRatio: aspectRatio as any };
+      finalPrompt += ` --aspect-ratio ${aspectRatio}`;
     }
 
     const model = genAI.getGenerativeModel({ model: 'gemini-3-pro-image-preview' });
     const response = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: cleanPrompt }] }],
-      generationConfig: config,
+      contents: [{ role: 'user', parts: [{ text: finalPrompt }] }],
     });
 
     // Track Usage (Image Cost: $0.134)
