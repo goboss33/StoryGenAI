@@ -9,6 +9,8 @@ interface Props {
     totalDuration: number;
     pacing: Pacing;
     language: string;
+    tone: string;
+    targetAudience: string;
     audioScript?: AudioScriptItem[];
     onUpdate: (updates: Partial<StoryState>) => void;
     onBack: () => void;
@@ -17,7 +19,7 @@ interface Props {
 }
 
 const Step1BisDialogue: React.FC<Props> = ({
-    idea, totalDuration, pacing, language, audioScript = [], onUpdate, onBack, onNext, isNextStepReady
+    idea, totalDuration, pacing, language, tone, targetAudience, audioScript = [], onUpdate, onBack, onNext, isNextStepReady
 }) => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -61,7 +63,7 @@ const Step1BisDialogue: React.FC<Props> = ({
         setIsGenerating(true);
         setError('');
         try {
-            const script = await generateAudioScript(idea, totalDuration, pacing, language);
+            const script = await generateAudioScript(idea, totalDuration, pacing, language, tone, targetAudience);
             onUpdate({ audioScript: script });
             if (script.length > 0) setActiveItemId(script[0].id);
         } catch (err: any) {

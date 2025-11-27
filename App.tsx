@@ -22,6 +22,8 @@ const App: React.FC = () => {
     totalDuration: 60,
     pacing: 'standard',
     language: 'English',
+    tone: 'Inspirant',
+    targetAudience: 'Tout public',
     script: [],
     stylePrompt: 'Cinematic lighting, photorealistic, 8k, highly detailed',
     aspectRatio: '16:9',
@@ -182,6 +184,9 @@ const App: React.FC = () => {
               totalDuration={state.totalDuration}
               pacing={state.pacing}
               language={state.language}
+              tone={state.tone}
+              targetAudience={state.targetAudience}
+              aspectRatio={state.aspectRatio}
               onUpdate={updateState}
               onNext={nextStep}
               onImport={importProject}
@@ -207,6 +212,8 @@ const App: React.FC = () => {
               totalDuration={state.totalDuration}
               pacing={state.pacing}
               language={state.language}
+              tone={state.tone}
+              targetAudience={state.targetAudience}
               audioScript={state.audioScript}
               onUpdate={updateState}
               onBack={prevStep}

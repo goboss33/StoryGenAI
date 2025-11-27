@@ -102,6 +102,8 @@ export interface StoryState {
   totalDuration: number;
   pacing: Pacing;
   language: string;
+  tone: string;
+  targetAudience: string;
   script: Scene[];
   stylePrompt: string;
   aspectRatio: '16:9' | '9:16' | '1:1' | '4:3' | '3:4';
@@ -142,3 +144,12 @@ export const PRESET_STYLES = [
   { name: 'Pixel Art', prompt: 'Pixel art, 16-bit, retro game style, vibrant' },
   { name: 'Black & White Noir', prompt: 'Film noir, black and white, dramatic shadows, high contrast, vintage' },
 ];
+
+export const TONES = [
+  "Drôle", "Sérieux", "Épique", "Inspirant", "Éducatif", "Dramatique", "Mystérieux", "Energique"
+];
+
+export const TARGET_AUDIENCES = [
+  "Tout public", "Enfants", "Ados", "Jeunes Adultes", "Professionnels", "Seniors", "Passionnés de Tech", "Voyageurs"
+];
+

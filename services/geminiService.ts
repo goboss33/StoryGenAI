@@ -137,7 +137,9 @@ export const generateAudioScript = async (
   idea: string,
   totalDuration: number,
   pacing: Pacing,
-  language: string = 'English'
+  language: string = 'English',
+  tone: string = 'Standard',
+  targetAudience: string = 'General Audience'
 ): Promise<import("../types").AudioScriptItem[]> => {
   try {
     const prompt = `
@@ -148,6 +150,8 @@ export const generateAudioScript = async (
     - Total Duration: ${totalDuration} seconds
     - Pacing: ${pacing}
     - Language: ${language}
+    - Tone/Style: ${tone}
+    - Target Audience: ${targetAudience}
     - Format: JSON array of objects
     
     Each object must have:
