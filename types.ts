@@ -86,6 +86,7 @@ export interface Asset {
   // Hierarchy Fields
   parentId?: string;
   locationType?: 'MASTER' | 'SUB';
+  description?: string;
 }
 
 export interface RefineQuestion {
@@ -225,6 +226,7 @@ export interface LocationTemplate {
 export interface ShotTemplate {
   shot_index: number;
   id: string;
+  duration_sec: number; // Exact duration of the shot
   composition: {
     shot_type: string; // Wide, Medium, Close-up
     camera_movement: string; // Pan, Tilt, Static, Zoom
@@ -233,20 +235,18 @@ export interface ShotTemplate {
   content: {
     ui_description: string;
     characters_in_shot: string[]; // IDs
-    final_image_prompt: string;
+    final_image_prompt: string; // Detailed static image prompt
+    video_motion_prompt: string; // Detailed Veo animation prompt
     seed?: number;
   };
   audio: {
-    type: 'dialogue' | 'sfx' | 'silence';
-    speaker_ref_id?: string;
-    text_content?: string;
-    audio_file_url?: string;
-    duration_exact_sec?: number;
+    // Context of what is heard during this shot (Dialogue, VO, SFX)
+    audio_context: string;
+    is_voice_over: boolean;
   };
   video_generation: {
-    motion_strength: number;
-    video_file_url?: string;
     status: 'pending' | 'processing' | 'ready';
+    video_file_url?: string;
   };
 }
 
@@ -256,6 +256,7 @@ export interface SceneTemplate {
   slugline: string;
   location_ref_id: string;
   narrative_goal: string;
+  estimated_duration_sec: number; // Total duration of the scene
   shots: ShotTemplate[];
 }
 

@@ -12,9 +12,6 @@ const SchemaType = {
 };
 
 // Robust API Key Retrieval
-// 1. Check VITE_GEMINI_API_KEY (Standard Vite)
-// 2. Check process.env.GEMINI_API_KEY (Defined in vite.config.ts)
-// 3. Check process.env.API_KEY (Legacy definition in vite.config.ts)
 const apiKey = import.meta.env.VITE_GEMINI_API_KEY ||
   (process.env.GEMINI_API_KEY as string) ||
   (process.env.API_KEY as string);
@@ -37,7 +34,6 @@ export const assembleActionPrompt = (shot: Scene, assets: Asset[]): string => {
     .filter(a => a?.type === AssetType.CHARACTER);
 
   activeCharacters.forEach(char => {
-    // Safety check: ensure characterActions is an array before calling find
     if (Array.isArray(shot.actionData?.characterActions)) {
       const actionEntry = shot.actionData.characterActions.find(a => a.castId === char?.id);
       if (char && actionEntry) {
@@ -52,7 +48,6 @@ export const assembleActionPrompt = (shot: Scene, assets: Asset[]): string => {
     .filter(a => a?.type === AssetType.ITEM);
 
   activeItems.forEach(item => {
-    // Safety check: ensure itemStates is an array before calling find
     if (Array.isArray(shot.actionData?.itemStates)) {
       const stateEntry = shot.actionData.itemStates.find(a => a.itemId === item?.id);
       if (item && stateEntry) {
@@ -127,115 +122,150 @@ const trackUsage = (model: string, inputTokens: number, outputTokens: number, sp
   if (specialCost) {
     cost += specialCost;
   }
-
   const stats: UsageStats = { inputTokens, outputTokens, cost };
   usageListeners.forEach(l => l(stats));
 };
 
-// --- 0. Analyze Story Concept (Advanced Prompt Engineering) ---
-export const analyzeStoryConcept = async (
+// --- AGENTIC WORKFLOW: STEP 1 - SKELETON GENERATION ---
+const generateStorySkeleton = async (
   idea: string,
-  settings: {
-    tone: string;
-    targetAudience: string;
-    language: string;
-    duration: number;
-  }
+  settings: { tone: string; targetAudience: string; language: string; duration: number }
 ): Promise<import("../types").ProjectBackbone> => {
-  if (!apiKey || apiKey === "MISSING_KEY") {
-    throw new Error("API Key is missing. Please check your .env.local file.");
-  }
-
-  try {
-    const prompt = `
-    You are a professional Hollywood Screenwriter and Showrunner.
-    Your task is to analyze a raw story idea and structure it into a "Project Backbone" JSON format.
+  const prompt = `
+    Role: Showrunner & Lead Writer.
+    Task: Create the "Project Backbone" (Structure, Characters, Locations, Scene List) for a video project.
     
     INPUT:
     - Idea: "${idea}"
     - Tone: ${settings.tone}
-    - Target Audience: ${settings.targetAudience}
+    - Audience: ${settings.targetAudience}
     - Language: ${settings.language}
-    - Target Duration: ${settings.duration} seconds
+    - Total Duration: ${settings.duration}s
 
     INSTRUCTIONS:
-    1. Analyze the input idea. Infer missing details based on Tone and Audience.
-    2. INVENT Characters: Create detailed character profiles (Name, Role, Visual Description).
-    3. INVENT Locations: Create detailed location profiles (Name, Environment Prompt, Int/Ext).
-    4. STRUCTURE Scenes: Break the story into logical scenes (Slugline, Narrative Goal).
-    5. FILL Metadata & Config: Populate the project metadata and configuration.
+    1. **Characters**: Create detailed profiles (Name, Role, Visual Description).
+    2. **Locations**: Create detailed profiles (Name, Environment Prompt).
+    3. **Scene List**: Break the story into logical scenes.
+       - Assign an \`estimated_duration_sec\` to each scene.
+       - **CRITICAL**: The sum of scene durations MUST equal ${settings.duration}s (+/- 5s).
+       - **DO NOT generate shots yet.** Leave the "shots" array empty [].
 
-    OUTPUT FORMAT:
-    Return ONLY a valid JSON object matching this structure:
+    OUTPUT JSON:
     {
-      "project_id": "uuid_v4_unique",
-      "meta_data": {
-        "title": "string",
-        "created_at": "${new Date().toISOString()}",
-        "user_intent": "${idea}"
-      },
-      "config": {
-        "aspect_ratio": "16:9",
-        "resolution": "1080p",
-        "target_fps": 24,
-        "primary_language": "${settings.language}",
-        "target_audience": "${settings.targetAudience}",
-        "tone_style": "${settings.tone}"
-      },
-      "global_assets": {
-        "art_style_prompt": "string (e.g. Cinematic, 8k, Photorealistic)",
-        "negative_prompt": "cartoon, drawing, anime, blurry, low quality, text, watermark",
-        "music_theme_id": "string"
-      },
+      "project_id": "uuid",
+      "meta_data": { "title": "string", "user_intent": "${idea}", "created_at": "${new Date().toISOString()}" },
+      "config": { "aspect_ratio": "16:9", "resolution": "1080p", "target_fps": 24, "primary_language": "${settings.language}", "target_audience": "${settings.targetAudience}", "tone_style": "${settings.tone}" },
+      "global_assets": { "art_style_prompt": "string", "negative_prompt": "string", "music_theme_id": "string" },
       "database": {
-        "characters": [
-          {
-            "id": "char_01",
-            "name": "string",
-            "role": "string",
-            "visual_seed": {
-              "description": "string (detailed visual description for AI image gen)"
-            }
-          }
-        ],
-        "locations": [
-          {
-            "id": "loc_01",
-            "name": "string",
-            "environment_prompt": "string (detailed environment description)",
-            "interior_exterior": "INT" | "EXT"
-          }
-        ],
-        "scenes": [
-          {
-            "scene_index": 1,
-            "id": "sc_01",
-            "slugline": "string (e.g. INT. OFFICE - NIGHT)",
-            "location_ref_id": "string (must match a location id)",
-            "narrative_goal": "string",
-            "shots": []
-          }
-        ]
+        "characters": [{ "id": "char_01", "name": "string", "role": "string", "visual_seed": { "description": "string" } }],
+        "locations": [{ "id": "loc_01", "name": "string", "environment_prompt": "string", "interior_exterior": "INT" }],
+        "scenes": [{ 
+          "scene_index": 1, "id": "sc_01", "slugline": "string", "location_ref_id": "string", "narrative_goal": "string", 
+          "estimated_duration_sec": 10, "shots": [] 
+        }]
       },
-      "final_render": {
-        "total_duration_sec": 0
-      }
+      "final_render": { "total_duration_sec": ${settings.duration} }
     }
-    `;
+  `;
 
-    const model = genAI.getGenerativeModel({
-      model: "gemini-2.0-flash-exp",
-      generationConfig: { responseMimeType: "application/json" }
+  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp", generationConfig: { responseMimeType: "application/json" } });
+  const result = await model.generateContent(prompt);
+  const text = result.response.text();
+  trackUsage("gemini-2.0-flash-exp", prompt.length / 4, text.length / 4);
+  return JSON.parse(text);
+};
+
+// --- AGENTIC WORKFLOW: STEP 2 - SHOT GENERATION ---
+const generateSceneShots = async (
+  scene: import("../types").SceneTemplate,
+  context: import("../types").ProjectBackbone
+): Promise<import("../types").ShotTemplate[]> => {
+  const prompt = `
+    Role: Director of Photography & Editor.
+    Task: Generate a detailed SHOT LIST for ONE specific scene.
+    
+    CONTEXT:
+    - Project Title: "${context.meta_data.title}"
+    - Style: "${context.global_assets.art_style_prompt}"
+    - Characters: ${JSON.stringify(context.database.characters.map(c => ({ id: c.id, name: c.name, desc: c.visual_seed.description })))}
+    - Location: ${JSON.stringify(context.database.locations.find(l => l.id === scene.location_ref_id))}
+    
+    SCENE TO VISUALIZE:
+    - Slugline: ${scene.slugline}
+    - Goal: ${scene.narrative_goal}
+    - Duration: ${scene.estimated_duration_sec} seconds
+
+    INSTRUCTIONS:
+    1. Break this scene into a sequence of shots.
+    2. **CRITICAL**: The sum of shot durations MUST equal ${scene.estimated_duration_sec}s.
+    3. For each shot:
+       - \`final_image_prompt\`: Detailed static visual description.
+       - \`video_motion_prompt\`: Camera movement and action for AI video.
+       - \`audio_context\`: What we hear (Dialogue/SFX) linked to this specific visual.
+
+    OUTPUT JSON (Array of Shots):
+    [
+      {
+        "shot_index": 1,
+        "id": "shot_${scene.id}_01",
+        "duration_sec": 3,
+        "composition": { "shot_type": "Wide", "camera_movement": "Pan", "angle": "Eye Level" },
+        "content": { 
+          "ui_description": "string", 
+          "characters_in_shot": ["char_id"], 
+          "final_image_prompt": "string", 
+          "video_motion_prompt": "string" 
+        },
+        "audio": { "audio_context": "string", "is_voice_over": false },
+        "video_generation": { "status": "pending" }
+      }
+    ]
+  `;
+
+  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp", generationConfig: { responseMimeType: "application/json" } });
+  const result = await model.generateContent(prompt);
+  const text = result.response.text();
+  trackUsage("gemini-2.0-flash-exp", prompt.length / 4, text.length / 4);
+  return JSON.parse(text);
+};
+
+// --- ORCHESTRATOR ---
+export const analyzeStoryConcept = async (
+  idea: string,
+  settings: { tone: string; targetAudience: string; language: string; duration: number }
+): Promise<import("../types").ProjectBackbone> => {
+  if (!apiKey || apiKey === "MISSING_KEY") throw new Error("API Key is missing.");
+
+  try {
+    // 1. Generate Skeleton
+    logDebug('info', 'Agentic Workflow', { step: '1. Generating Skeleton' });
+    const skeleton = await generateStorySkeleton(idea, settings);
+
+    // 2. Generate Shots for each scene (Parallel)
+    logDebug('info', 'Agentic Workflow', { step: '2. Generating Shots', sceneCount: skeleton.database.scenes.length });
+
+    const scenePromises = skeleton.database.scenes.map(async (scene) => {
+      try {
+        const shots = await generateSceneShots(scene, skeleton);
+        return { ...scene, shots };
+      } catch (err) {
+        console.error(`Failed to generate shots for scene ${scene.id}`, err);
+        return scene; // Return scene without shots if failed, to avoid crashing entire flow
+      }
     });
 
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
+    const fullyPopulatedScenes = await Promise.all(scenePromises);
 
-    // Usage Tracking (Approximate)
-    trackUsage("gemini-2.0-flash-exp", prompt.length / 4, text.length / 4);
+    // 3. Assemble Final Result
+    const finalProject = {
+      ...skeleton,
+      database: {
+        ...skeleton.database,
+        scenes: fullyPopulatedScenes
+      }
+    };
 
-    return JSON.parse(text) as import("../types").ProjectBackbone;
+    return finalProject;
 
   } catch (error: any) {
     console.error("Story Analysis Failed:", error);
@@ -517,75 +547,34 @@ export const generateScript = async (
         }
       },
       required: ["sequences", "world"]
-    } as any;
+    };
 
     const model = genAI.getGenerativeModel({
-      model: 'gemini-2.0-flash-exp',
+      model: "gemini-2.0-flash-exp",
       generationConfig: {
-        responseMimeType: 'application/json',
-        responseSchema: responseSchema
-      }
+        responseMimeType: "application/json",
+        responseSchema: responseSchema as any,
+      },
     });
 
+    logDebug('req', 'Generate Script', { prompt });
     const result = await model.generateContent(prompt);
     const response = result.response;
-    const text = response.text();
+    const json = response.text();
+    logDebug('res', 'Generate Script', { json });
 
-    // Track Usage
-    if (response.usageMetadata) {
-      trackUsage(
-        'gemini-2.0-flash-exp',
-        response.usageMetadata.promptTokenCount || 0,
-        response.usageMetadata.candidatesTokenCount || 0
-      );
-    }
+    const rawData = JSON.parse(json);
+    const sequences = rawData.sequences || [];
+    const world = rawData.world || {};
 
-    let data;
-    try {
-      data = JSON.parse(text || '{}');
-      logDebug('res', 'Generate Script Response', data);
-    } catch (e) {
-      logDebug('error', 'Generate Script JSON Parse Error', { textRaw: text });
-      throw new Error("Failed to parse script JSON.");
-    }
-
-    if (!data.sequences) throw new Error("No sequences generated");
-
-    const world = data.world || { locations: [], characters: [], items: [] };
-    let sequences = data.sequences || [];
-
-    // --- POST-PROCESS: MERGE CONSECUTIVE SEQUENCES ---
-    const mergedSequences: any[] = [];
-    if (sequences.length > 0) {
-      let currentSeq = sequences[0];
-      if (!currentSeq.shots) currentSeq.shots = [];
-
-      for (let i = 1; i < sequences.length; i++) {
-        const nextSeq = sequences[i];
-        if (!nextSeq.shots) nextSeq.shots = [];
-
-        if (nextSeq.locationId === currentSeq.locationId && nextSeq.time === currentSeq.time) {
-          currentSeq.shots = [...currentSeq.shots, ...nextSeq.shots];
-          if (nextSeq.context && !currentSeq.context.includes(nextSeq.context)) {
-            currentSeq.context += " " + nextSeq.context;
-          }
-        } else {
-          mergedSequences.push(currentSeq);
-          currentSeq = nextSeq;
-        }
-      }
-      mergedSequences.push(currentSeq);
-    }
-    sequences = mergedSequences;
-
-    // 1. Build Assets Registry
+    // 1. Process Assets (Create Asset Objects)
     const assets: Asset[] = [];
 
-    // Helper to create assets with Hierarchy support
     const createAsset = (def: any, type: AssetType): Asset => ({
       id: def.id,
-      name: def.name.toUpperCase(),
       type: type,
+      name: def.name,
+      description: def.description,
       parentId: def.parentId, // Capture Parent ID
       locationType: def.type, // Capture MASTER/SUB
       visuals: {

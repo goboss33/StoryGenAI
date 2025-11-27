@@ -108,6 +108,14 @@ const Step2Analysis: React.FC<Props> = ({
                                     <div>
                                         <div className="font-bold text-slate-800 text-sm uppercase tracking-wide mb-1">{scene.slugline}</div>
                                         <p className="text-sm text-slate-600">{scene.narrative_goal}</p>
+                                        <div className="mt-2 text-xs text-slate-500 flex gap-3">
+                                            <span className="bg-slate-100 px-2 py-1 rounded font-medium text-slate-600">
+                                                ⏱️ {scene.estimated_duration_sec}s
+                                            </span>
+                                            <span className="bg-slate-100 px-2 py-1 rounded font-medium text-slate-600">
+                                                🎬 {scene.shots?.length || 0} plans
+                                            </span>
+                                        </div>
                                     </div>
                                 </div>
                             ))}
