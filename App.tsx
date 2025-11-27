@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StoryState } from './types';
+import { StoryState, ProjectBackbone } from './types';
 import Step1Idea from './components/Step1Idea';
-import Step2Style from './components/Step2Style';
+
+import Step2Analysis from './components/Step2Analysis';
 import Step1BisDialogue from './components/Step1BisDialogue';
 import Step2Script from './components/Step2Script';
 import { Steps } from './components/ui/Steps';
-import { subscribeToDebugLog, subscribeToUsage, UsageStats } from './services/geminiService';
+import { subscribeToDebugLog, subscribeToUsage, UsageStats, analyzeStoryConcept } from './services/geminiService';
 
 interface LogEntry {
   id: string;
@@ -14,6 +15,22 @@ interface LogEntry {
   data: any;
   timestamp: number;
 }
+
+const EMPTY_PROJECT_BACKBONE: ProjectBackbone = {
+  project_id: "",
+  meta_data: { title: "", created_at: "", user_intent: "" },
+  config: {
+    aspect_ratio: "16:9",
+    resolution: "1080p",
+    target_fps: 24,
+    primary_language: "fr-FR",
+    target_audience: "General Public",
+    tone_style: "Cinematic"
+  },
+  global_assets: { art_style_prompt: "", negative_prompt: "" },
+  database: { characters: [], locations: [], scenes: [] },
+  final_render: { total_duration_sec: 0 }
+};
 
 const App: React.FC = () => {
   const [state, setState] = useState<StoryState>({
@@ -34,6 +51,7 @@ const App: React.FC = () => {
   const [debugMode, setDebugMode] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [totalUsage, setTotalUsage] = useState<UsageStats>({ inputTokens: 0, outputTokens: 0, cost: 0 });
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -55,13 +73,63 @@ const App: React.FC = () => {
     };
   }, []);
 
+  // Point #1: Log empty structure when on Step 1 (index 0)
+  useEffect(() => {
+    if (state.step === 0) {
+      console.log("Step 1 Active - Logging Empty Project Backbone");
+      setLogs(prev => [...prev, {
+        id: crypto.randomUUID(),
+        type: 'info',
+        title: 'Step 1: Empty Project Backbone',
+        data: EMPTY_PROJECT_BACKBONE,
+        timestamp: Date.now()
+      }]);
+    }
+  }, [state.step]);
+
   useEffect(() => {
     if (debugMode && logEndRef.current) {
       logEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [logs, debugMode]);
 
-  const nextStep = () => setState(prev => ({ ...prev, step: prev.step + 1 }));
+  const nextStep = async () => {
+    // Point #2: Intercept Step 1 -> Step 2
+    if (state.step === 0) {
+      setIsAnalyzing(true);
+      try {
+        const projectBackbone = await analyzeStoryConcept(state.idea, {
+          tone: state.tone,
+          targetAudience: state.targetAudience,
+          language: state.language,
+          duration: state.totalDuration
+        });
+
+        // Log the filled result
+        setLogs(prev => [...prev, {
+          id: crypto.randomUUID(),
+          type: 'info',
+          title: 'Step 1 Analysis Complete (Project Backbone)',
+          data: projectBackbone,
+          timestamp: Date.now()
+        }]);
+
+        setState(prev => ({
+          ...prev,
+          project: projectBackbone,
+          step: prev.step + 1
+        }));
+
+      } catch (error: any) {
+        console.error("Analysis failed", error);
+        alert(`Failed to analyze story: ${error.message || "Unknown error"}`);
+      } finally {
+        setIsAnalyzing(false);
+      }
+    } else {
+      setState(prev => ({ ...prev, step: prev.step + 1 }));
+    }
+  };
   const prevStep = () => setState(prev => ({ ...prev, step: prev.step - 1 }));
   const goToStep = (stepIndex: number) => setState(prev => ({ ...prev, step: stepIndex }));
 
@@ -186,23 +254,21 @@ const App: React.FC = () => {
               language={state.language}
               tone={state.tone}
               targetAudience={state.targetAudience}
-              aspectRatio={state.aspectRatio}
+
+              audioScript={state.audioScript}
               onUpdate={updateState}
+              onBack={prevStep}
               onNext={nextStep}
-              onImport={importProject}
-              isDebugMode={debugMode}
-              setIsDebugMode={setDebugMode}
+              isNextStepReady={state.script.length > 0}
             />
           )}
 
           {state.step === 1 && (
-            <Step2Style
-              stylePrompt={state.stylePrompt}
+            <Step2Analysis
+              project={state.project}
               onUpdate={updateState}
               onNext={nextStep}
               onBack={prevStep}
-              onCreateScript={handleForceCreateScript}
-              isNextStepReady={state.script.length > 0}
             />
           )}
 

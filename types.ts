@@ -104,6 +104,8 @@ export interface StoryState {
   language: string;
   tone: string;
   targetAudience: string;
+  storyAnalysis?: ScreenplayStructure;
+  project?: ProjectBackbone;
   script: Scene[];
   stylePrompt: string;
   aspectRatio: '16:9' | '9:16' | '1:1' | '4:3' | '3:4';
@@ -152,4 +154,140 @@ export const TONES = [
 export const TARGET_AUDIENCES = [
   "Tout public", "Enfants", "Ados", "Jeunes Adultes", "Professionnels", "Seniors", "Passionnés de Tech", "Voyageurs"
 ];
+
+// --- ADVANCED PROMPT ENGINEERING STRUCTURES ---
+
+export interface ScreenplayCharacter {
+  name: string;
+  role: string; // e.g., "Protagonist", "Antagonist", "Mentor"
+  description: string; // Physical & Personality traits
+}
+
+export interface ScreenplayDialogue {
+  speaker: string;
+  text: string;
+  parenthetical?: string; // e.g., (ironically), (coughing)
+  type: 'normal' | 'VO' | 'OS'; // VO = Voice Over, OS = Off Screen
+}
+
+export interface ScreenplayScene {
+  slugline: {
+    intExt: 'INT.' | 'EXT.';
+    location: string;
+    time: string; // DAY, NIGHT, DAWN, etc.
+    weather?: string;
+  };
+  visualStyle: {
+    cameraShot: string; // e.g., "Wide Shot", "Close Up"
+    lighting: string;
+    angle: string;
+    transition?: string; // CUT TO:, FADE OUT:
+  };
+  characters: ScreenplayCharacter[];
+  actionSummary: string; // The "Big Print" - what happens
+  dialogueSamples: ScreenplayDialogue[];
+}
+
+export interface ScreenplayStructure {
+  title: string;
+  author: string;
+  logline: string;
+  genre: string;
+  themes: string[];
+  scenes: ScreenplayScene[];
+}
+
+// --- PROJECT BACKBONE STRUCTURES ---
+
+export interface CharacterTemplate {
+  id: string;
+  name: string;
+  role: string; // e.g., "Protagonist"
+  visual_seed: {
+    description: string;
+    ref_image_url?: string;
+  };
+  voice_config?: {
+    provider: string;
+    voice_id: string;
+    stability: number;
+    similarity_boost: number;
+  };
+}
+
+export interface LocationTemplate {
+  id: string;
+  name: string;
+  environment_prompt: string;
+  interior_exterior: 'INT' | 'EXT';
+}
+
+export interface ShotTemplate {
+  shot_index: number;
+  id: string;
+  composition: {
+    shot_type: string; // Wide, Medium, Close-up
+    camera_movement: string; // Pan, Tilt, Static, Zoom
+    angle: string; // Eye level, Low angle
+  };
+  content: {
+    ui_description: string;
+    characters_in_shot: string[]; // IDs
+    final_image_prompt: string;
+    seed?: number;
+  };
+  audio: {
+    type: 'dialogue' | 'sfx' | 'silence';
+    speaker_ref_id?: string;
+    text_content?: string;
+    audio_file_url?: string;
+    duration_exact_sec?: number;
+  };
+  video_generation: {
+    motion_strength: number;
+    video_file_url?: string;
+    status: 'pending' | 'processing' | 'ready';
+  };
+}
+
+export interface SceneTemplate {
+  scene_index: number;
+  id: string;
+  slugline: string;
+  location_ref_id: string;
+  narrative_goal: string;
+  shots: ShotTemplate[];
+}
+
+export interface ProjectBackbone {
+  project_id: string;
+  meta_data: {
+    title: string;
+    created_at: string;
+    user_intent: string;
+  };
+  config: {
+    aspect_ratio: '16:9' | '9:16' | '1:1';
+    resolution: string;
+    target_fps: number;
+    primary_language: string;
+    target_audience: string;
+    tone_style: string;
+  };
+  global_assets: {
+    art_style_prompt: string;
+    negative_prompt: string;
+    music_theme_id?: string;
+  };
+  database: {
+    characters: CharacterTemplate[];
+    locations: LocationTemplate[];
+    scenes: SceneTemplate[];
+  };
+  final_render: {
+    total_duration_sec: number;
+    video_file_url?: string;
+  };
+}
+
 

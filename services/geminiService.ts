@@ -132,6 +132,117 @@ const trackUsage = (model: string, inputTokens: number, outputTokens: number, sp
   usageListeners.forEach(l => l(stats));
 };
 
+// --- 0. Analyze Story Concept (Advanced Prompt Engineering) ---
+export const analyzeStoryConcept = async (
+  idea: string,
+  settings: {
+    tone: string;
+    targetAudience: string;
+    language: string;
+    duration: number;
+  }
+): Promise<import("../types").ProjectBackbone> => {
+  if (!apiKey || apiKey === "MISSING_KEY") {
+    throw new Error("API Key is missing. Please check your .env.local file.");
+  }
+
+  try {
+    const prompt = `
+    You are a professional Hollywood Screenwriter and Showrunner.
+    Your task is to analyze a raw story idea and structure it into a "Project Backbone" JSON format.
+    
+    INPUT:
+    - Idea: "${idea}"
+    - Tone: ${settings.tone}
+    - Target Audience: ${settings.targetAudience}
+    - Language: ${settings.language}
+    - Target Duration: ${settings.duration} seconds
+
+    INSTRUCTIONS:
+    1. Analyze the input idea. Infer missing details based on Tone and Audience.
+    2. INVENT Characters: Create detailed character profiles (Name, Role, Visual Description).
+    3. INVENT Locations: Create detailed location profiles (Name, Environment Prompt, Int/Ext).
+    4. STRUCTURE Scenes: Break the story into logical scenes (Slugline, Narrative Goal).
+    5. FILL Metadata & Config: Populate the project metadata and configuration.
+
+    OUTPUT FORMAT:
+    Return ONLY a valid JSON object matching this structure:
+    {
+      "project_id": "uuid_v4_unique",
+      "meta_data": {
+        "title": "string",
+        "created_at": "${new Date().toISOString()}",
+        "user_intent": "${idea}"
+      },
+      "config": {
+        "aspect_ratio": "16:9",
+        "resolution": "1080p",
+        "target_fps": 24,
+        "primary_language": "${settings.language}",
+        "target_audience": "${settings.targetAudience}",
+        "tone_style": "${settings.tone}"
+      },
+      "global_assets": {
+        "art_style_prompt": "string (e.g. Cinematic, 8k, Photorealistic)",
+        "negative_prompt": "cartoon, drawing, anime, blurry, low quality, text, watermark",
+        "music_theme_id": "string"
+      },
+      "database": {
+        "characters": [
+          {
+            "id": "char_01",
+            "name": "string",
+            "role": "string",
+            "visual_seed": {
+              "description": "string (detailed visual description for AI image gen)"
+            }
+          }
+        ],
+        "locations": [
+          {
+            "id": "loc_01",
+            "name": "string",
+            "environment_prompt": "string (detailed environment description)",
+            "interior_exterior": "INT" | "EXT"
+          }
+        ],
+        "scenes": [
+          {
+            "scene_index": 1,
+            "id": "sc_01",
+            "slugline": "string (e.g. INT. OFFICE - NIGHT)",
+            "location_ref_id": "string (must match a location id)",
+            "narrative_goal": "string",
+            "shots": []
+          }
+        ]
+      },
+      "final_render": {
+        "total_duration_sec": 0
+      }
+    }
+    `;
+
+    const model = genAI.getGenerativeModel({
+      model: "gemini-2.0-flash-exp",
+      generationConfig: { responseMimeType: "application/json" }
+    });
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const text = response.text();
+
+    // Usage Tracking (Approximate)
+    trackUsage("gemini-2.0-flash-exp", prompt.length / 4, text.length / 4);
+
+    return JSON.parse(text) as import("../types").ProjectBackbone;
+
+  } catch (error: any) {
+    console.error("Story Analysis Failed:", error);
+    throw new Error(`Failed to analyze story: ${error.message || error}`);
+  }
+};
+
 // --- 0. Generate Audio Script (Step 1bis) ---
 export const generateAudioScript = async (
   idea: string,
@@ -761,21 +872,13 @@ export const generateMultimodalImage = async (
     });
     parts.push({ text: prompt });
 
-    const config: any = {
-      responseMimeType: "image/png" // Assuming image output
-    };
-
     if (aspectRatio) {
-      // The `imageConfig` property for aspectRatio is not directly available in `generateContent`
-      // for image generation in the standard SDK. This might be a feature of a specific model or API.
-      // For now, we'll omit it or handle it as a prompt instruction.
-      // config.imageConfig = { aspectRatio: aspectRatio as any }; // This line is commented out as it's not standard
+      parts.push({ text: `Aspect Ratio: ${aspectRatio}` });
     }
 
     const model = genAI.getGenerativeModel({ model: 'gemini-3-pro-image-preview' });
     const response = await model.generateContent({
       contents: [{ role: 'user', parts: parts }],
-      generationConfig: config
     });
 
     // Track Usage (Image Cost: $0.134)
@@ -784,34 +887,16 @@ export const generateMultimodalImage = async (
     const candidate = response.response.candidates?.[0];
     const part = candidate?.content?.parts?.[0];
 
+    // Check for InlineData (base64)
     if (part && part.inlineData && part.inlineData.data) {
-      logDebug('res', 'Generate Multimodal Success', { size: part.inlineData.data.length });
-      return `data:image/png;base64,${part.inlineData.data}`;
+      logDebug('res', 'Generate Multimodal Image Success', { size: part.inlineData.data.length });
+      return `data: image / png; base64, ${part.inlineData.data} `;
     }
-    throw new Error("No multimodal image generated");
-  } catch (error) {
-    logDebug('error', 'Multimodal Gen Failed', error);
-    console.error("Multimodal gen failed:", error);
-    throw error;
+
+    throw new Error("No image data received from Gemini 3 Pro");
+
+  } catch (err) {
+    logDebug('error', 'Generate Multimodal Image Failed', err);
+    throw err;
   }
-};
-
-// --- 7. Outpaint/Resize Image ---
-export const outpaintImage = async (imageUri: string, targetAspectRatio: string): Promise<string> => {
-  const prompt = `Resize and extend this image to fit a ${targetAspectRatio} aspect ratio. Fill in the background naturally to match the style.`;
-  // This function would typically call a multimodal image generation model with the image and the prompt.
-  // For now, we'll use a placeholder or call generateMultimodalImage if it supports image-to-image editing.
-  logDebug('info', 'Outpaint Image (Placeholder)', { imageUri, targetAspectRatio });
-  // Assuming generateMultimodalImage can handle image-to-image editing with a prompt
-  const { mimeType, data } = parseDataUri(imageUri);
-  return generateMultimodalImage(prompt, [{ name: 'input_image', data, mimeType }]);
-};
-
-// --- 8. Generate Refinement Questions ---
-export const generateRefinementQuestions = async (script: Scene[], stylePrompt: string): Promise<RefineQuestion[]> => {
-  logDebug('info', 'Refinement Questions Skipped (Not Implemented)', {});
-  return [];
-};
-export const generateBridgeScene = async (prevDesc: string, nextDesc: string, stylePrompt: string): Promise<{ description: string; narration: string }> => {
-  return { description: "A transition", narration: "" };
 };
