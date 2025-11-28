@@ -242,7 +242,13 @@ export interface ShotTemplate {
   audio: {
     // Context of what is heard during this shot (Dialogue, VO, SFX)
     audio_context: string;
+    specificAudioCues?: string; // Specific sound effects or cues
     is_voice_over: boolean;
+    dialogue?: {
+      speaker: string;
+      text: string;
+      tone: string;
+    }[];
   };
   video_generation: {
     status: 'pending' | 'processing' | 'ready';

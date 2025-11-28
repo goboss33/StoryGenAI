@@ -274,6 +274,7 @@ export const analyzeStoryConcept = async (
 };
 
 // --- 0. Generate Audio Script (Step 1bis) ---
+// DEPRECATED: Now handled by populateScriptAudio in Step 3
 export const generateAudioScript = async (
   idea: string,
   totalDuration: number,
@@ -282,49 +283,100 @@ export const generateAudioScript = async (
   tone: string = 'Standard',
   targetAudience: string = 'General Audience'
 ): Promise<import("../types").AudioScriptItem[]> => {
+  return [];
+};
+
+// --- NEW: Populate Script Audio (Step 3) ---
+export const populateScriptAudio = async (
+  project: import("../types").ProjectBackbone
+): Promise<import("../types").ProjectBackbone> => {
+  if (!apiKey || apiKey === "MISSING_KEY") throw new Error("API Key is missing.");
+
   try {
+    // 1. Serialize Visual Context for the AI
+    const visualContext = project.database.scenes.map(scene => ({
+      id: scene.id,
+      slugline: scene.slugline,
+      narrative_goal: scene.narrative_goal,
+      shots: scene.shots.map(shot => ({
+        id: shot.id,
+        duration: shot.duration_sec,
+        description: shot.content.ui_description,
+        characters: shot.content.characters_in_shot
+      }))
+    }));
+
+    const characterContext = project.database.characters.map(c => ({
+      id: c.id,
+      name: c.name,
+      role: c.role
+    }));
+
     const prompt = `
-    You are an expert audio drama scriptwriter.
-    Create a compelling audio script based on this idea: "${idea}"
+    Role: Professional Screenwriter & Dialogue Editor.
+    Task: Write precise dialogue and audio cues for an existing visual storyboard.
     
-    Constraints:
-    - Total Duration: ${totalDuration} seconds
-    - Pacing: ${pacing}
-    - Language: ${language}
-    - Tone/Style: ${tone}
-    - Target Audience: ${targetAudience}
-    - Format: JSON array of objects
+    INPUT CONTEXT:
+    - Title: "${project.meta_data.title}"
+    - Intent: "${project.meta_data.user_intent}"
+    - Tone: "${project.config.tone_style}"
+    - Language: "${project.config.primary_language}"
     
-    Each object must have:
-    - speaker: Name of the character or "Narrator"
-    - text: The dialogue or narration
-    - tone: Emotion/delivery instruction (e.g., "Whispering", "Excited")
-    - durationEstimate: Estimated seconds for this line
-    
-    CRITICAL:
-    - You MUST insert "Break" items to control pacing.
-    - To insert a break, use speaker="Break", text="[2s]", durationEstimate=2 (or desired duration).
-    - Use breaks to create dramatic pauses or transitions.
-    
-    Example JSON:
-    [
-        { "speaker": "Narrator", "text": "The wind howled.", "tone": "Ominous", "durationEstimate": 3 },
-        { "speaker": "Break", "text": "[2s]", "tone": "Silence", "durationEstimate": 2 },
-        { "speaker": "Hero", "text": "Is anyone there?", "tone": "Scared", "durationEstimate": 2 }
-    ]
+    CHARACTERS:
+    ${JSON.stringify(characterContext, null, 2)}
+
+    VISUAL STORYBOARD (DO NOT CHANGE STRUCTURE):
+    ${JSON.stringify(visualContext, null, 2)}
+
+    INSTRUCTIONS:
+    1. **Fill Empty Audio Slots**: For each shot, you must provide the 'audio' object.
+    2. **Dialogue**: Write natural, character-consistent dialogue. Use the provided character IDs.
+    3. **Specific Audio Cues**: If a shot needs a specific sound (SFX) to match the visual action (e.g., "Door slams", "Bird chirps"), add it to 'specificAudioCues'.
+    4. **Timing**: Ensure dialogue length fits the shot duration.
+    5. **Silence**: If a shot has no dialogue, leave the dialogue array empty.
+
+    OUTPUT FORMAT:
+    Return a JSON object mapping Shot IDs to their new Audio Data.
+    Example:
+    {
+      "shot_id_123": {
+        "audio_context": "Quiet room, distant traffic",
+        "specificAudioCues": "Clock ticking loudly",
+        "is_voice_over": false,
+        "dialogue": [
+          { "speaker": "Character Name", "text": "Hello?", "tone": "Whisper" }
+        ]
+      }
+    }
     `;
 
     const responseSchema = {
-      type: SchemaType.ARRAY,
-      items: {
-        type: SchemaType.OBJECT,
-        properties: {
-          speaker: { type: SchemaType.STRING },
-          text: { type: SchemaType.STRING },
-          tone: { type: SchemaType.STRING },
-          durationEstimate: { type: SchemaType.NUMBER }
-        },
-        required: ["speaker", "text", "tone", "durationEstimate"]
+      type: SchemaType.OBJECT,
+      properties: {
+        shot_audio_map: {
+          type: SchemaType.OBJECT,
+          additionalProperties: {
+            type: SchemaType.OBJECT,
+            properties: {
+              audio_context: { type: SchemaType.STRING },
+              specificAudioCues: { type: SchemaType.STRING },
+              is_voice_over: { type: SchemaType.BOOLEAN },
+              dialogue: {
+                type: SchemaType.ARRAY,
+                items: {
+                  type: SchemaType.OBJECT,
+                  properties: {
+                    speaker: { type: SchemaType.STRING },
+                    text: { type: SchemaType.STRING },
+                    tone: { type: SchemaType.STRING }
+                  },
+                  required: ["speaker", "text", "tone"]
+                }
+              }
+            },
+            required: ["audio_context", "is_voice_over"]
+          }
+        }
       }
     };
 
@@ -332,34 +384,68 @@ export const generateAudioScript = async (
       model: "gemini-2.0-flash-exp",
       generationConfig: {
         responseMimeType: "application/json",
-        responseSchema: responseSchema as any,
+        // responseSchema: responseSchema as any, // Dynamic schema map is tricky, let's rely on JSON mode
       },
     });
 
-    logDebug('req', 'Generate Audio Script', { prompt });
+    logDebug('req', 'Populate Script Audio', { prompt });
     const result = await model.generateContent(prompt);
     const response = result.response;
-    const json = response.text();
-    logDebug('res', 'Generate Audio Script', { json });
+    const jsonText = response.text();
+    logDebug('res', 'Populate Script Audio', { jsonText });
 
-    const rawScript = JSON.parse(json);
+    let rawData = JSON.parse(jsonText);
+    let audioMap: Record<string, any> = {};
 
-    const script = rawScript.map((item: any) => ({
-      id: crypto.randomUUID(),
-      ...item,
-      isBreak: item.speaker === 'Break'
-    })) as import("../types").AudioScriptItem[];
+    // Normalize Data: Handle Array of Objects vs Single Object
+    if (Array.isArray(rawData)) {
+      // Case: [{ "shot_id": { ... } }, { "shot_id_2": { ... } }]
+      rawData.forEach(item => {
+        const shotId = Object.keys(item)[0];
+        if (shotId) audioMap[shotId] = item[shotId];
+      });
+    } else if (rawData.shot_audio_map) {
+      // Case: { "shot_audio_map": { "shot_id": { ... } } }
+      audioMap = rawData.shot_audio_map;
+    } else {
+      // Case: { "shot_id": { ... }, "shot_id_2": { ... } }
+      audioMap = rawData;
+    }
 
-    // Usage tracking (approximate)
+    // Merge back into ProjectBackbone
+    const updatedScenes = project.database.scenes.map(scene => ({
+      ...scene,
+      shots: scene.shots.map(shot => {
+        const newAudio = audioMap[shot.id];
+        if (newAudio) {
+          return {
+            ...shot,
+            audio: {
+              ...shot.audio,
+              ...newAudio
+            }
+          };
+        }
+        return shot;
+      })
+    }));
+
+    // Usage tracking
     if (response.usageMetadata) {
       trackUsage("gemini-2.0-flash-exp", response.usageMetadata.promptTokenCount, response.usageMetadata.candidatesTokenCount);
     }
 
-    return script;
+    return {
+      ...project,
+      database: {
+        ...project.database,
+        scenes: updatedScenes
+      }
+    };
 
   } catch (error) {
-    console.error("Audio Script Generation Failed:", error);
-    logDebug('error', 'Audio Script Gen Failed', error);
+    console.error("Audio Population Failed:", error);
+    logDebug('error', 'Audio Population Failed', error);
     throw error;
   }
 };

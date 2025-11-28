@@ -344,6 +344,7 @@ const App: React.FC = () => {
 
               {state.step === 2 && (
                 <Step1BisDialogue
+                  project={state.project}
                   idea={state.idea}
                   totalDuration={state.totalDuration}
                   pacing={state.pacing}

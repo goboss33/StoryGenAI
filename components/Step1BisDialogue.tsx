@@ -1,762 +1,183 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { AudioScriptItem, Pacing, StoryState, ElevenLabsVoice } from '../types';
-import { generateAudioScript } from '../services/geminiService';
-import { generateSpeech } from '../services/elevenLabsService';
-import VoiceLibrarySidebar from './VoiceLibrarySidebar';
+import React, { useState } from 'react';
+import { ProjectBackbone, SceneTemplate, ShotTemplate } from '../types';
+import { populateScriptAudio } from '../services/geminiService';
 
 interface Props {
+    project?: ProjectBackbone;
+    onUpdate: (updates: Partial<any>) => void;
+    onBack: () => void;
+    onNext: () => void;
+    // Legacy props (can be ignored or removed later)
     idea: string;
     totalDuration: number;
-    pacing: Pacing;
+    pacing: any;
     language: string;
     tone: string;
     targetAudience: string;
-    audioScript?: AudioScriptItem[];
-    onUpdate: (updates: Partial<StoryState>) => void;
-    onBack: () => void;
-    onNext: () => void;
+    audioScript: any[];
     isNextStepReady?: boolean;
 }
 
 const Step1BisDialogue: React.FC<Props> = ({
-    idea, totalDuration, pacing, language, tone, targetAudience, audioScript = [], onUpdate, onBack, onNext, isNextStepReady
+    project, onUpdate, onBack, onNext
 }) => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
-    const [generatingAudio, setGeneratingAudio] = useState<string | null>(null);
-    const [activeItemId, setActiveItemId] = useState<string | null>(null);
-    const [isGenerating, setIsGenerating] = useState(false);
 
-    // Sequencer State
-    const [isPlayingSequence, setIsPlayingSequence] = useState(false);
-    const isPlayingRef = useRef(false);
-    const [currentTime, setCurrentTime] = useState(0);
-    const [totalDurationState, setTotalDurationState] = useState(0);
+    if (!project) return <div>No Project Data</div>;
 
-    // Refs for optimization
-    const scrollContainerRef = useRef<HTMLDivElement>(null);
-    const audioRef = useRef<HTMLAudioElement | null>(null);
-    const playheadRef = useRef<HTMLDivElement>(null);
-    const timelineRef = useRef<HTMLDivElement>(null);
-    const animationFrameRef = useRef<number | null>(null);
-    const lastTimeUpdateRef = useRef<number>(0);
-
-    // Constants
-    const PIXELS_PER_SECOND = 30;
-    const MIN_ITEM_WIDTH = 60;
-
-    // Calculate total duration whenever script changes
-    useEffect(() => {
-        const total = audioScript.reduce((acc, item) => acc + (item.durationEstimate || 0), 0);
-        setTotalDurationState(total);
-    }, [audioScript]);
-
-    // Initialize active item if script exists
-    useEffect(() => {
-        if (audioScript.length > 0 && !activeItemId) {
-            setActiveItemId(audioScript[0].id);
-        }
-    }, [audioScript]);
-
-    const handleGenerate = async () => {
+    const handlePopulateAudio = async () => {
         setLoading(true);
-        setIsGenerating(true);
         setError('');
         try {
-            const script = await generateAudioScript(idea, totalDuration, pacing, language, tone, targetAudience);
-            onUpdate({ audioScript: script });
-            if (script.length > 0) setActiveItemId(script[0].id);
+            const updatedProject = await populateScriptAudio(project);
+            onUpdate({ project: updatedProject });
         } catch (err: any) {
             console.error(err);
-            setError(err.message || 'Failed to generate audio script');
+            setError(err.message || 'Failed to populate audio');
         } finally {
             setLoading(false);
-            setIsGenerating(false);
         }
     };
 
-    const handleUpdateItem = (id: string, updates: Partial<AudioScriptItem>) => {
-        const newScript = audioScript.map(item => item.id === id ? { ...item, ...updates } : item);
-        onUpdate({ audioScript: newScript });
-    };
-
-    const handleDeleteItem = (id: string) => {
-        const newScript = audioScript.filter(item => item.id !== id);
-        onUpdate({ audioScript: newScript });
-        if (activeItemId === id) setActiveItemId(null);
-    };
-
-    const handleAddItem = (index: number, isBreak: boolean = false) => {
-        const newItem: AudioScriptItem = {
-            id: crypto.randomUUID(),
-            speaker: isBreak ? 'Break' : 'Narrator',
-            text: isBreak ? '[2s]' : '',
-            tone: 'Neutral',
-            durationEstimate: 2,
-            isBreak: isBreak
-        };
-        const newScript = [...audioScript];
-        newScript.splice(index + 1, 0, newItem);
-        onUpdate({ audioScript: newScript });
-        setActiveItemId(newItem.id);
-    };
-
-    const handleGenerateAudioForItem = async (item: AudioScriptItem) => {
-        if (!item.voiceId) {
-            alert("Please select a voice first.");
-            return;
-        }
-        if (!item.text) return;
-
-        setGeneratingAudio(item.id);
-        try {
-            const audioUri = await generateSpeech(item.text, item.voiceId);
-
-            // Create a temporary audio element to get duration
-            const tempAudio = new Audio(audioUri);
-            tempAudio.onloadedmetadata = () => {
-                const actualDuration = Math.ceil(tempAudio.duration);
-                handleUpdateItem(item.id, {
-                    audioUri,
-                    durationEstimate: actualDuration
-                });
-            };
-            // Fallback if metadata fails to load quickly, still save URI
-            handleUpdateItem(item.id, { audioUri });
-
-        } catch (err) {
-            console.error("Audio generation failed", err);
-            alert("Failed to generate audio. Check console for details.");
-        } finally {
-            setGeneratingAudio(null);
-        }
-    };
-
-    const handleVoiceSelect = (voice: ElevenLabsVoice) => {
-        if (activeItemId) {
-            const currentItem = audioScript.find(i => i.id === activeItemId);
-            if (currentItem) {
-                // Update ALL items with the same speaker
-                const newScript = audioScript.map(item => {
-                    if (item.speaker === currentItem.speaker && !item.isBreak) {
-                        return { ...item, voiceId: voice.voice_id, voiceName: voice.name };
-                    }
-                    return item;
-                });
-                onUpdate({ audioScript: newScript });
-            }
-        }
-    };
-
-    // --- Helper Functions ---
-    const getItemWidth = (item: AudioScriptItem) => Math.max(MIN_ITEM_WIDTH, (item.durationEstimate || 2) * PIXELS_PER_SECOND);
-
-    const getPixelOffsetForTime = (time: number) => {
-        let pixelOffset = 0;
-        let remainingTime = time;
-
-        for (const item of audioScript) {
-            const itemDuration = item.durationEstimate || 2;
-            const itemWidth = getItemWidth(item);
-
-            if (remainingTime <= itemDuration) {
-                const progressPercent = remainingTime / itemDuration;
-                return pixelOffset + (itemWidth * progressPercent);
-            }
-
-            remainingTime -= itemDuration;
-            pixelOffset += itemWidth;
-        }
-        return pixelOffset;
-    };
-
-    const updatePlayhead = (time: number) => {
-        if (playheadRef.current) {
-            const offset = getPixelOffsetForTime(time);
-            playheadRef.current.style.transform = `translateX(${offset}px)`;
-        }
-
-        // Throttle React state updates to 10fps to avoid stutter
-        const now = Date.now();
-        if (now - lastTimeUpdateRef.current > 100) {
-            setCurrentTime(time);
-            lastTimeUpdateRef.current = now;
-        }
-    };
-
-    // --- Sequencer Logic ---
-    const stopSequence = () => {
-        setIsPlayingSequence(false);
-        isPlayingRef.current = false;
-        if (audioRef.current) {
-            audioRef.current.pause();
-            audioRef.current = null;
-        }
-        if (animationFrameRef.current) {
-            cancelAnimationFrame(animationFrameRef.current);
-        }
-    };
-
-    const playSequence = async () => {
-        if (isPlayingSequence) {
-            stopSequence();
-            return;
-        }
-
-        setIsPlayingSequence(true);
-        isPlayingRef.current = true;
-
-        // Start from current time or 0 if at end
-        let playbackTime = currentTime >= totalDurationState ? 0 : currentTime;
-        let accumulatedTime = 0;
-        let startIndex = 0;
-
-        // Find where to start
-        for (let i = 0; i < audioScript.length; i++) {
-            const duration = audioScript[i].durationEstimate || 2;
-            if (accumulatedTime + duration > playbackTime) {
-                startIndex = i;
-                // Adjust accumulated time to be the start of this item
-                break;
-            }
-            accumulatedTime += duration;
-        }
-
-        // Playback Loop
-        for (let i = startIndex; i < audioScript.length; i++) {
-            if (!isPlayingRef.current) break;
-            const item = audioScript[i];
-            setActiveItemId(item.id);
-
-            // Scroll item into view
-            const element = document.getElementById(`timeline-item-${item.id}`);
-            if (element && scrollContainerRef.current) {
-                const container = scrollContainerRef.current;
-                const offset = element.offsetLeft - container.offsetLeft - (container.clientWidth / 2) + (element.clientWidth / 2);
-                container.scrollTo({ left: Math.max(0, offset), behavior: 'smooth' });
-            }
-
-            const itemDuration = item.durationEstimate || 2;
-            // Calculate start offset within this item if we're resuming mid-item
-            const startOffset = Math.max(0, playbackTime - accumulatedTime);
-            const durationToPlay = itemDuration - startOffset;
-
-            if (item.isBreak) {
-                const startTime = Date.now();
-                while (Date.now() - startTime < durationToPlay * 1000) {
-                    if (!isPlayingRef.current) break;
-                    const elapsed = (Date.now() - startTime) / 1000;
-                    playbackTime = accumulatedTime + startOffset + elapsed;
-                    updatePlayhead(playbackTime);
-                    await new Promise(resolve => requestAnimationFrame(resolve));
-                }
-            } else if (item.audioUri) {
-                await new Promise<void>((resolve) => {
-                    const audio = new Audio(item.audioUri);
-                    audioRef.current = audio;
-                    audio.currentTime = startOffset;
-
-                    const updateLoop = () => {
-                        if (isPlayingRef.current && !audio.paused) {
-                            playbackTime = accumulatedTime + audio.currentTime;
-                            updatePlayhead(playbackTime);
-                            animationFrameRef.current = requestAnimationFrame(updateLoop);
-                        }
-                    };
-
-                    audio.onplay = () => {
-                        updateLoop();
-                    };
-
-                    audio.onended = () => {
-                        if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-                        resolve();
-                    };
-
-                    audio.play().catch(e => {
-                        console.error("Playback failed", e);
-                        resolve();
-                    });
-                });
-            } else {
-                // Simulate reading
-                const startTime = Date.now();
-                while (Date.now() - startTime < durationToPlay * 1000) {
-                    if (!isPlayingRef.current) break;
-                    const elapsed = (Date.now() - startTime) / 1000;
-                    playbackTime = accumulatedTime + startOffset + elapsed;
-                    updatePlayhead(playbackTime);
-                    await new Promise(resolve => requestAnimationFrame(resolve));
-                }
-            }
-
-            accumulatedTime += itemDuration;
-            // Reset startOffset for next items
-            playbackTime = accumulatedTime;
-        }
-
-        stopSequence();
-        if (playbackTime >= totalDurationState) {
-            setCurrentTime(0);
-            updatePlayhead(0);
-            setActiveItemId(null);
-        }
-    };
-
-    // --- Scrubbing Logic ---
-    const handleScrub = (e: React.MouseEvent | MouseEvent) => {
-        if (!scrollContainerRef.current) return;
-        const rect = scrollContainerRef.current.getBoundingClientRect();
-        const scrollLeft = scrollContainerRef.current.scrollLeft;
-        const clickX = (e.clientX - rect.left + scrollLeft) - 16; // -16 padding
-
-        let accumulatedWidth = 0;
-        let accumulatedTime = 0;
-        let newTime = 0;
-        let foundItem = false;
-
-        for (const item of audioScript) {
-            const itemWidth = getItemWidth(item);
-            const itemDuration = item.durationEstimate || 2;
-
-            if (clickX >= accumulatedWidth && clickX < accumulatedWidth + itemWidth) {
-                const offsetInItem = clickX - accumulatedWidth;
-                const timeInItem = (offsetInItem / itemWidth) * itemDuration;
-                newTime = accumulatedTime + timeInItem;
-                setActiveItemId(item.id);
-                foundItem = true;
-                break;
-            }
-
-            accumulatedWidth += itemWidth;
-            accumulatedTime += itemDuration;
-        }
-
-        if (!foundItem) {
-            if (clickX < 0) newTime = 0;
-            else newTime = totalDurationState;
-        }
-
-        setCurrentTime(newTime);
-        updatePlayhead(newTime);
-    };
-
-    const handleTimelineMouseDown = (e: React.MouseEvent) => {
-        stopSequence(); // Stop playing when scrubbing starts
-        handleScrub(e);
-
-        const handleMouseMove = (moveEvent: MouseEvent) => {
-            handleScrub(moveEvent);
-        };
-
-        const handleMouseUp = () => {
-            document.removeEventListener('mousemove', handleMouseMove);
-            document.removeEventListener('mouseup', handleMouseUp);
-        };
-
-        document.addEventListener('mousemove', handleMouseMove);
-        document.addEventListener('mouseup', handleMouseUp);
-    };
-
-    // --- Resize Logic ---
-    const handleResizeBreak = (e: React.MouseEvent, item: AudioScriptItem) => {
-        e.stopPropagation();
-        const startX = e.clientX;
-        const startDuration = item.durationEstimate || 2;
-
-        const handleMouseMove = (moveEvent: MouseEvent) => {
-            const diffX = moveEvent.clientX - startX;
-            const diffSeconds = Math.round(diffX / PIXELS_PER_SECOND);
-            const newDuration = Math.max(1, startDuration + diffSeconds);
-            if (newDuration !== item.durationEstimate) {
-                handleUpdateItem(item.id, { durationEstimate: newDuration, text: `[${newDuration}s]` });
-            }
-        };
-
-        const handleMouseUp = () => {
-            document.removeEventListener('mousemove', handleMouseMove);
-            document.removeEventListener('mouseup', handleMouseUp);
-        };
-
-        document.addEventListener('mousemove', handleMouseMove);
-        document.addEventListener('mouseup', handleMouseUp);
-    };
-
-    // --- Render Helpers ---
-    const formatTime = (seconds: number) => {
-        const mins = Math.floor(seconds / 60);
-        const secs = Math.floor(seconds % 60);
-        return `${mins}:${secs.toString().padStart(2, '0')}`;
-    };
-
-    const getSpeakerColor = (speaker: string) => {
-        if (speaker === 'Narrator') return { bg: 'bg-slate-100', border: 'border-slate-300', text: 'text-slate-700' };
-        const colors = [
-            { bg: 'bg-blue-100', border: 'border-blue-300', text: 'text-blue-700' },
-            { bg: 'bg-green-100', border: 'border-green-300', text: 'text-green-700' },
-            { bg: 'bg-purple-100', border: 'border-purple-300', text: 'text-purple-700' },
-            { bg: 'bg-orange-100', border: 'border-orange-300', text: 'text-orange-700' },
-            { bg: 'bg-pink-100', border: 'border-pink-300', text: 'text-pink-700' },
-            { bg: 'bg-teal-100', border: 'border-teal-300', text: 'text-teal-700' },
-        ];
-        let hash = 0;
-        for (let i = 0; i < speaker.length; i++) hash = speaker.charCodeAt(i) + ((hash << 5) - hash);
-        return colors[Math.abs(hash) % colors.length];
-    };
-
-    const renderWaveform = (item: AudioScriptItem, isActive: boolean) => {
-        const getBarHeight = (index: number) => {
-            const seed = item.id.charCodeAt(index % item.id.length) + index;
-            return 20 + (seed % 70) + '%';
-        };
-
+    const renderShot = (shot: ShotTemplate, sceneIndex: number) => {
         return (
-            <div className="flex items-end justify-center gap-[2px] h-full w-full px-1 opacity-90 pb-1">
-                {Array.from({ length: Math.max(5, (item.durationEstimate || 2) * 2) }).map((_, i) => (
-                    <div
-                        key={i}
-                        className={`w-1.5 rounded-t-sm transition-all duration-300 ${isActive ? 'bg-slate-800' : 'bg-slate-400/60'}`}
-                        style={{ height: getBarHeight(i) }}
-                    />
-                ))}
-            </div>
-        );
-    };
-
-    const renderTimeRuler = () => {
-        const totalWidth = audioScript.reduce((acc, item) => acc + getItemWidth(item), 0);
-        const ticks = [];
-        const tickInterval = 5; // seconds
-
-        for (let t = 0; t <= totalDurationState; t += tickInterval) {
-            const offset = getPixelOffsetForTime(t);
-            ticks.push(
-                <div key={t} className="absolute top-0 flex flex-col items-center" style={{ left: `${offset}px`, transform: 'translateX(-50%)' }}>
-                    <div className="text-[9px] text-slate-400 font-mono mb-1 select-none">{formatTime(t)}</div>
-                    <div className="w-[1px] h-2 bg-slate-300"></div>
-                </div>
-            );
-        }
-
-        return (
-            <div className="absolute top-0 left-4 right-0 h-6 pointer-events-none z-10">
-                {ticks}
-            </div>
-        );
-    };
-
-    const renderTimelineItem = (item: AudioScriptItem) => {
-        const width = getItemWidth(item);
-        const isActive = activeItemId === item.id;
-        const colors = getSpeakerColor(item.speaker);
-
-        if (item.isBreak) {
-            return (
-                <div
-                    id={`timeline-item-${item.id}`}
-                    key={item.id}
-                    className="h-full flex flex-col justify-center relative group flex-shrink-0 mx-[1px]"
-                    style={{ width: `${width}px` }}
-                    title={`Break: ${item.durationEstimate}s`}
-                >
-                    <div className="absolute inset-y-2 inset-x-0 bg-white border border-slate-200 rounded-md shadow-sm flex items-center justify-center">
-                        <span className="text-[10px] text-slate-400 font-mono select-none">{item.durationEstimate}s</span>
-                        {/* Resize Handle */}
-                        <div
-                            className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-slate-100 flex items-center justify-center z-20"
-                            onMouseDown={(e) => handleResizeBreak(e, item)}
-                        >
-                            <div className="w-[2px] h-4 bg-slate-300 rounded-full" />
-                        </div>
+            <div key={shot.id} className="mb-6 pl-4 border-l-2 border-slate-200">
+                <div className="flex items-baseline justify-between mb-2">
+                    <h4 className="text-sm font-bold text-slate-500 uppercase tracking-wider">
+                        Plan {shot.shot_index} <span className="text-slate-400 font-normal">({shot.duration_sec}s)</span>
+                    </h4>
+                    <div className="text-xs text-slate-400 italic">
+                        {shot.composition.shot_type} • {shot.composition.angle}
                     </div>
                 </div>
-            );
-        }
 
-        return (
-            <div
-                id={`timeline-item-${item.id}`}
-                key={item.id}
-                onClick={() => setActiveItemId(item.id)}
-                className={`h-full flex flex-col relative group flex-shrink-0 cursor-pointer transition-all mx-[1px] rounded-lg overflow-hidden border
-                    ${isActive ? 'ring-2 ring-indigo-500 z-10' : 'hover:brightness-95'}
-                    ${item.audioUri ? colors.bg : 'bg-slate-50'}
-                    ${colors.border}
-                `}
-                style={{
-                    width: `${width}px`,
-                    backgroundImage: !item.audioUri ? 'repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(0,0,0,0.03) 5px, rgba(0,0,0,0.03) 10px)' : 'none'
-                }}
-            >
-                {/* Header (Speaker) */}
-                <div className={`px-2 py-1 text-[10px] font-bold truncate ${colors.text} bg-white/50`}>
-                    {item.speaker}
-                </div>
+                {/* Visual Description */}
+                <p className="text-slate-600 mb-3 text-sm bg-slate-50 p-2 rounded-md border border-slate-100">
+                    <span className="font-semibold text-slate-700">Visuel :</span> {shot.content.ui_description}
+                </p>
 
-                {/* Waveform Area */}
-                <div className="flex-1 w-full relative flex items-end">
-                    {item.audioUri ? renderWaveform(item, isActive) : (
-                        <div className="w-full h-full flex items-center justify-center text-[10px] text-slate-400 italic select-none">
-                            Pending
+                {/* Audio / Dialogue Section */}
+                <div className="space-y-2">
+                    {shot.audio?.dialogue && shot.audio.dialogue.length > 0 ? (
+                        shot.audio.dialogue.map((line, idx) => (
+                            <div key={idx} className="flex gap-4">
+                                <div className="w-32 flex-shrink-0 text-right font-bold text-slate-800 text-sm pt-1">
+                                    {line.speaker}
+                                </div>
+                                <div className="flex-1">
+                                    <p className="text-slate-900 text-base font-serif leading-relaxed">
+                                        "{line.text}"
+                                    </p>
+                                    {line.tone && (
+                                        <span className="text-xs text-slate-400 italic">({line.tone})</span>
+                                    )}
+                                </div>
+                            </div>
+                        ))
+                    ) : (
+                        <div className="text-xs text-slate-400 italic pl-36">
+                            (Aucun dialogue)
                         </div>
                     )}
+
+                    {/* Specific Audio Cues */}
+                    {shot.audio?.specificAudioCues && (
+                        <div className="flex gap-4 mt-2">
+                            <div className="w-32 flex-shrink-0 text-right font-bold text-amber-600 text-xs pt-1">
+                                SFX
+                            </div>
+                            <div className="flex-1 text-sm text-amber-700 italic bg-amber-50 px-2 py-1 rounded inline-block">
+                                {shot.audio.specificAudioCues}
+                            </div>
+                        </div>
+                    )}
+                    {/* Audio Context */}
+                    <div className="flex gap-4 mt-1">
+                        <div className="w-32 flex-shrink-0 text-right font-bold text-slate-400 text-xs pt-1">
+                            Ambiance
+                        </div>
+                        <div className="flex-1 text-xs text-slate-500">
+                            {shot.audio?.audio_context || 'N/A'}
+                        </div>
+                    </div>
                 </div>
             </div>
         );
     };
 
-    const activeItem = audioScript.find(i => i.id === activeItemId);
-
-    // --- RENDER ---
-
-    if (audioScript.length === 0) {
+    const renderScene = (scene: SceneTemplate, index: number) => {
         return (
-            <div className="h-full flex flex-col items-center justify-center bg-slate-50 p-8">
-                <div className="max-w-md text-center">
-                    <div className="w-20 h-20 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-6">
-                        <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
-                    </div>
-                    <h2 className="text-2xl font-bold text-slate-900 mb-2">Générer le Scénario Audio</h2>
-                    <p className="text-slate-500 mb-8">L'IA va transformer votre idée en dialogues et narration.</p>
-                    {error && <div className="mb-6 p-4 bg-red-50 text-red-600 rounded-lg text-sm">{error}</div>}
+            <div key={scene.id} className="mb-12 bg-white p-8 rounded-xl shadow-sm border border-slate-200">
+                <div className="border-b border-slate-100 pb-4 mb-6">
+                    <h3 className="text-xl font-bold text-slate-900 uppercase tracking-tight">
+                        {index + 1}. {scene.slugline}
+                    </h3>
+                    <p className="text-slate-500 text-sm mt-1">{scene.narrative_goal}</p>
+                </div>
+                <div className="space-y-6">
+                    {scene.shots.map(shot => renderShot(shot, index))}
+                </div>
+            </div>
+        );
+    };
+
+    const hasAudio = project.database.scenes.some(s => s.shots.some(shot => shot.audio?.dialogue?.length || shot.audio?.specificAudioCues));
+
+    return (
+        <div className="h-full flex flex-col bg-slate-50">
+            {/* Header */}
+            <div className="bg-white border-b border-slate-200 px-8 py-4 flex items-center justify-between flex-shrink-0 sticky top-0 z-10">
+                <div>
+                    <h2 className="text-2xl font-bold text-slate-900">Scénario & Dialogues</h2>
+                    <p className="text-slate-500 text-sm">Étape 3 : Peuplez votre structure avec des dialogues et du sound design.</p>
+                </div>
+                <div className="flex gap-3">
                     <button
-                        onClick={handleGenerate}
+                        onClick={handlePopulateAudio}
                         disabled={loading}
-                        className="px-8 py-4 bg-indigo-600 text-white rounded-xl font-bold shadow-lg hover:bg-indigo-700 transition-all flex items-center gap-2 mx-auto disabled:opacity-50"
+                        className="px-4 py-2 bg-indigo-50 text-indigo-600 rounded-lg font-bold hover:bg-indigo-100 transition-colors flex items-center gap-2"
                     >
-                        {loading ? <span className="animate-spin w-5 h-5 border-2 border-white border-t-transparent rounded-full"></span> : null}
-                        {loading ? 'Écriture en cours...' : 'Générer le Script'}
+                        {loading ? <span className="animate-spin w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full"></span> : null}
+                        {hasAudio ? 'Régénérer l\'Audio' : 'Générer les Dialogues'}
+                    </button>
+                    <button
+                        onClick={onNext}
+                        className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200"
+                    >
+                        Suivant : Storyboard
                     </button>
                 </div>
             </div>
-        );
-    }
 
-    return (
-        <div className="flex h-full bg-slate-50 overflow-hidden relative">
-            {/* LEFT SIDEBAR: VOICE LIBRARY */}
-            <div className="w-80 flex-shrink-0 border-r border-slate-200 bg-white z-10 flex flex-col h-full">
-                <VoiceLibrarySidebar
-                    isOpen={true}
-                    onClose={() => { }}
-                    onSelectVoice={handleVoiceSelect}
-                    currentVoiceId={activeItem?.voiceId}
-                    variant="embedded"
-                />
-            </div>
-
-            {/* CENTER: DOCUMENT EDITOR */}
-            <div className="flex-1 flex flex-col min-w-0 relative h-full">
-                {/* Toolbar */}
-                <div className="h-14 border-b border-slate-200 bg-white flex items-center justify-between px-6 flex-shrink-0 z-20 shadow-sm">
-                    <div className="flex items-center gap-4">
-                        <h2 className="text-lg font-semibold text-slate-800">Audio Script</h2>
-                        <span className="text-sm text-slate-500">
-                            {audioScript.length} lines • ~{totalDurationState.toFixed(0)}s total
-                        </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <button
-                            onClick={playSequence}
-                            className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 text-sm font-medium transition-colors"
-                        >
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            {isPlayingSequence ? 'Pause' : 'Play All'}
-                        </button>
-                        <button
-                            onClick={handleGenerate}
-                            disabled={isGenerating}
-                            className="bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-md hover:bg-indigo-100 text-sm font-medium transition-colors"
-                        >
-                            {isGenerating ? 'Generating...' : 'Regenerate Script'}
-                        </button>
-                        <button onClick={onNext} className="text-sm font-bold bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors ml-2">
-                            Suivant
-                        </button>
-                    </div>
-                </div>
-
-                {/* Scrollable Document Area (with padding for sticky timeline) */}
-                <div className="flex-1 overflow-y-auto p-8 pb-64 bg-slate-50">
-                    <div className="max-w-3xl mx-auto bg-white shadow-sm rounded-xl min-h-[800px] p-12 border border-slate-200">
-                        {audioScript.map((item, index) => {
-                            if (item.isBreak) {
-                                return (
-                                    <div key={item.id} className="flex items-center justify-center py-4 opacity-50 hover:opacity-100 transition-opacity group relative">
-                                        <div className="h-px bg-slate-300 w-full max-w-xs"></div>
-                                        <span className="mx-4 text-xs font-mono text-slate-400 uppercase tracking-widest">Break ({item.durationEstimate}s)</span>
-                                        <div className="h-px bg-slate-300 w-full max-w-xs"></div>
-                                        <button
-                                            onClick={(e) => { e.stopPropagation(); handleDeleteItem(item.id); }}
-                                            className="absolute right-0 p-1 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                                        >
-                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                                        </button>
-                                    </div>
-                                );
-                            }
-
-                            return (
-                                <div
-                                    key={item.id}
-                                    onClick={() => setActiveItemId(item.id)}
-                                    className={`group relative flex gap-6 mb-6 p-4 rounded-lg transition-all border-2
-                                        ${activeItemId === item.id ? 'bg-indigo-50/30 border-indigo-100 shadow-sm' : 'border-transparent hover:bg-slate-50'}
-                                        ${!item.audioUri ? 'opacity-70 bg-slate-50 border-dashed border-slate-300' : 'bg-white'}
-                                    `}
-                                >
-                                    {/* Left Margin: Avatar */}
-                                    <div className="w-12 flex-shrink-0 flex flex-col items-center gap-2 pt-1">
-                                        <div
-                                            className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold shadow-sm ring-2 ring-white
-                                                ${item.speaker === 'Narrator' ? 'bg-slate-100 text-slate-600' : 'bg-indigo-100 text-indigo-600'}
-                                                ${!item.audioUri ? 'opacity-50 grayscale' : ''}
-                                            `}
-                                        >
-                                            {item.speaker.substring(0, 2).toUpperCase()}
-                                        </div>
-                                        {item.audioUri ? (
-                                            <button
-                                                onClick={(e) => { e.stopPropagation(); const audio = new Audio(item.audioUri); audio.play(); }}
-                                                className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center hover:bg-emerald-200 transition-colors"
-                                            >
-                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                                                </svg>
-                                            </button>
-                                        ) : (
-                                            <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-400">
-                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                                </svg>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* Content */}
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-baseline justify-between mb-2">
-                                            <input
-                                                value={item.speaker}
-                                                onChange={(e) => handleUpdateItem(item.id, { speaker: e.target.value })}
-                                                className="font-bold text-sm text-slate-700 bg-transparent hover:bg-slate-200/50 rounded px-1 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                                            />
-                                            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <span className="text-xs text-slate-400 font-mono">~{item.durationEstimate}s</span>
-                                                <button
-                                                    onClick={(e) => { e.stopPropagation(); handleGenerateAudioForItem(item); }}
-                                                    className="text-xs bg-white border border-slate-200 hover:border-indigo-300 hover:text-indigo-600 px-2 py-1 rounded shadow-sm transition-all"
-                                                >
-                                                    {item.audioUri ? 'Regenerate' : 'Generate'}
-                                                </button>
-                                                <button
-                                                    onClick={(e) => { e.stopPropagation(); handleDeleteItem(item.id); }}
-                                                    className="text-slate-400 hover:text-red-500 p-1 transition-colors"
-                                                >
-                                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                                </button>
-                                            </div>
-                                        </div>
-                                        <textarea
-                                            value={item.text}
-                                            onChange={(e) => handleUpdateItem(item.id, { text: e.target.value })}
-                                            className={`w-full bg-transparent resize-none focus:outline-none leading-relaxed p-0 border-none focus:ring-0
-                                                ${!item.audioUri ? 'text-slate-500 italic' : 'text-slate-800'}
-                                            `}
-                                            rows={Math.max(2, Math.ceil(item.text.length / 80))}
-                                            placeholder="Type dialogue here..."
-                                        />
-                                    </div>
-
-                                    {/* Add Break / New Line Indicator (Hover) */}
-                                    <div className="absolute -bottom-5 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-all z-20 flex gap-2">
-                                        <button
-                                            onClick={(e) => { e.stopPropagation(); handleAddItem(index); }}
-                                            className="bg-indigo-600 text-white rounded-full p-1.5 shadow-lg hover:bg-indigo-700 hover:scale-110 transition-all"
-                                            title="Add Dialogue Line"
-                                        >
-                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                                        </button>
-                                        <button
-                                            onClick={(e) => { e.stopPropagation(); handleAddItem(index, true); }}
-                                            className="bg-slate-600 text-white rounded-full p-1.5 shadow-lg hover:bg-slate-700 hover:scale-110 transition-all"
-                                            title="Add Break"
-                                        >
-                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                        </button>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
-            </div>
-
-            {/* STICKY BOTTOM PLAYER & TIMELINE */}
-            <div className="absolute bottom-0 left-0 right-0 h-48 bg-white border-t border-slate-200 z-50 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.1)] flex flex-col">
-
-                {/* Player Controls */}
-                <div className="h-16 border-b border-slate-100 flex items-center justify-between px-8 bg-slate-50/50">
-                    <div className="flex items-center gap-4 w-1/3">
-                        <div className="text-xs font-mono text-slate-500">
-                            <span className="text-slate-900 font-bold">{formatTime(currentTime)}</span> / {formatTime(totalDurationState)}
+            {/* Script Content */}
+            <div className="flex-1 overflow-y-auto p-8">
+                <div className="max-w-4xl mx-auto">
+                    {error && (
+                        <div className="mb-6 p-4 bg-red-50 text-red-600 rounded-lg border border-red-100">
+                            {error}
                         </div>
-                    </div>
+                    )}
 
-                    <div className="flex items-center justify-center gap-6 w-1/3">
-                        <button className="text-slate-400 hover:text-slate-600 transition-colors">
-                            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z" /></svg>
-                        </button>
-                        <button
-                            onClick={playSequence}
-                            className="w-12 h-12 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-lg hover:bg-indigo-700 hover:scale-105 transition-all"
-                        >
-                            {isPlayingSequence ? (
-                                <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
-                            ) : (
-                                <svg className="w-6 h-6 ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
-                            )}
-                        </button>
-                        <button className="text-slate-400 hover:text-slate-600 transition-colors">
-                            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z" /></svg>
-                        </button>
-                    </div>
-
-                    <div className="flex items-center justify-end gap-4 w-1/3">
-                        <div className="flex gap-4 text-[10px] text-slate-400 uppercase tracking-wider font-bold">
-                            <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-indigo-500"></div> Active</span>
-                            <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-slate-300"></div> Pending</span>
+                    {!hasAudio && !loading && (
+                        <div className="text-center py-20">
+                            <div className="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
+                            </div>
+                            <h3 className="text-lg font-bold text-slate-900 mb-2">Structure Prête</h3>
+                            <p className="text-slate-500 mb-6 max-w-md mx-auto">
+                                Votre structure visuelle est en place. Cliquez ci-dessus pour laisser l'IA écrire les dialogues et placer les effets sonores.
+                            </p>
+                            <button
+                                onClick={handlePopulateAudio}
+                                className="px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors shadow-xl"
+                            >
+                                Générer les Dialogues
+                            </button>
                         </div>
-                    </div>
-                </div>
+                    )}
 
-                {/* Timeline Track */}
-                <div
-                    ref={scrollContainerRef}
-                    className="flex-1 overflow-x-auto custom-scrollbar relative bg-slate-50"
-                    onMouseDown={handleTimelineMouseDown}
-                >
-                    <div className="flex h-full items-stretch min-w-max px-4 relative pt-6 pb-2">
-                        {/* Time Ruler */}
-                        {renderTimeRuler()}
-
-                        {audioScript.map(renderTimelineItem)}
-
-                        {/* Playhead Overlay */}
-                        <div
-                            ref={playheadRef}
-                            className="absolute top-0 bottom-0 w-[2px] bg-red-500 z-30 pointer-events-none transition-none"
-                            style={{
-                                left: '16px', // Initial padding offset
-                                display: 'block'
-                            }}
-                        >
-                            <div className="w-3 h-3 -ml-1.5 bg-red-500 rounded-full shadow-sm mt-6" />
-                        </div>
-                    </div>
+                    {project.database.scenes.map((scene, idx) => renderScene(scene, idx))}
                 </div>
             </div>
         </div>
