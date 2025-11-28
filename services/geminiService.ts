@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { Scene, Asset, AssetType, Pacing, RefineQuestion } from "../types";
+import { Scene, Asset, AssetType, Pacing, RefineQuestion, ProjectBackbone, AssetChangeAnalysis, SceneTemplate } from "../types";
 
 // Define SchemaType locally to avoid import errors with older SDK versions
 const SchemaType = {
@@ -975,5 +975,163 @@ export const generateMultimodalImage = async (
   } catch (err) {
     logDebug('error', 'Generate Multimodal Image Failed', err);
     throw err;
+  }
+};
+
+// --- SMART REGENERATION SERVICES ---
+
+// Helper to clean JSON string from markdown code blocks
+const cleanJsonString = (text: string): string => {
+  let cleaned = text.trim();
+  // Remove markdown code blocks if present
+  if (cleaned.startsWith("```")) {
+    cleaned = cleaned.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
+  }
+  return cleaned;
+};
+
+export const analyzeAssetChanges = async (
+  originalDb: ProjectBackbone['database'],
+  currentDb: ProjectBackbone['database']
+): Promise<AssetChangeAnalysis> => {
+  const model = genAI.getGenerativeModel({
+    model: "gemini-3-pro-preview",
+    generationConfig: { responseMimeType: "application/json" }
+  });
+
+  const prompt = `
+  You are an expert Story Analyst. The user has modified the assets (Characters or Locations) of their story.
+  Your task is to analyze these changes and determine if the user's intent is clear or if you need to ask clarifying questions before rewriting the story sequencer.
+
+  ORIGINAL ASSETS:
+  Characters: ${JSON.stringify(originalDb.characters)}
+  Locations: ${JSON.stringify(originalDb.locations)}
+
+  CURRENT ASSETS (MODIFIED BY USER):
+  Characters: ${JSON.stringify(currentDb.characters)}
+  Locations: ${JSON.stringify(currentDb.locations)}
+
+
+  INSTRUCTIONS:
+  1. Identify what changed (added/removed/modified items).
+  2. Infer the narrative impact.
+     - Example: If a "Villain" was added, the story likely needs a conflict scene.
+     - Example: If a "School" location was added, scenes might need to move there.
+  3. Decide if you have enough info to regenerate the scene list (sequencer) automatically.
+     - Return status: "CONFIRMED" if the intent is obvious (e.g., just added a location, or removed a minor character).
+     - Return status: "QUESTION" if the intent is ambiguous (e.g., added a character named "Bob" with no role, or removed the Main Character).
+  4. If status is "QUESTION", provide 1-2 multiple-choice questions (RefineQuestion) to clarify.
+
+  OUTPUT SCHEMA (JSON):
+  {
+    "status": "CONFIRMED" | "QUESTION",
+    "reasoning": "Explanation of your analysis...",
+    "questions": [
+      {
+        "id": "q1",
+        "text": "Question text?",
+        "options": [
+          { "id": "opt1", "label": "Option 1" },
+          { "id": "opt2", "label": "Option 2" }
+        ]
+      }
+    ] (optional, only if status is QUESTION)
+  }
+  `;
+
+  try {
+    const result = await model.generateContent(prompt);
+    const response = result.response;
+    const text = cleanJsonString(response.text());
+    return JSON.parse(text) as AssetChangeAnalysis;
+  } catch (error) {
+    console.error("Error analyzing asset changes:", error);
+    // Fallback to confirmed to avoid blocking, but log error
+    return { status: 'CONFIRMED', reasoning: "Error in analysis, proceeding with best guess." };
+  }
+};
+
+export const regenerateSequencer = async (
+  currentDb: ProjectBackbone['database'],
+  metaData: ProjectBackbone['meta_data'],
+  userAnswers?: Record<string, string>
+): Promise<SceneTemplate[]> => {
+  const model = genAI.getGenerativeModel({
+    model: "gemini-3-pro-preview",
+    generationConfig: { responseMimeType: "application/json" }
+  });
+
+  const prompt = `
+  You are an expert Screenwriter. The user has modified the characters or locations of their story.
+  Your task is to REGENERATE the Scene List (Sequencer) to reflect these changes.
+
+  STORY METADATA:
+  Title: ${metaData.title}
+  Logline: ${metaData.user_intent}
+
+  UPDATED ASSETS:
+  Characters: ${JSON.stringify(currentDb.characters)}
+  Locations: ${JSON.stringify(currentDb.locations)}
+
+  USER CLARIFICATIONS (if any):
+  ${userAnswers ? JSON.stringify(userAnswers) : "None"}
+
+  INSTRUCTIONS:
+  1. Rewrite the list of scenes (sequencer).
+  2. Ensure NEW characters/locations are integrated meaningfully.
+  3. Ensure REMOVED characters/locations are gone from the narrative.
+  4. Maintain the original tone and pacing, but adapt the plot points as necessary.
+  5. Generate between 5 to 15 scenes depending on the story complexity.
+
+  OUTPUT SCHEMA (JSON Array of SceneTemplate):
+  [
+    {
+      "scene_index": 1,
+      "id": "scene_1",
+      "slugline": "INT. LOCATION - DAY",
+      "location_ref_id": "loc_id_ref",
+      "narrative_goal": "Description of what happens...",
+      "estimated_duration_sec": 15,
+      "shots": [] (Leave empty for now, will be generated later)
+    },
+    ...
+  ]
+  `;
+
+  try {
+    logDebug('req', 'Regenerating Sequencer', { prompt });
+
+    const result = await model.generateContent(prompt);
+    const response = result.response;
+    const text = cleanJsonString(response.text());
+
+    logDebug('res', 'Regenerated Sequencer Result', { text });
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(text);
+    } catch (e) {
+      console.error("JSON Parse Error:", e);
+      console.error("Failed Text:", text);
+      throw new Error("Invalid JSON received from AI");
+    }
+
+    let scenes: SceneTemplate[] = [];
+
+    if (Array.isArray(parsed)) {
+      scenes = parsed as SceneTemplate[];
+    } else if (parsed && Array.isArray(parsed.scenes)) {
+      // Handle case where AI wraps array in an object
+      scenes = parsed.scenes as SceneTemplate[];
+    } else {
+      console.error("Unexpected JSON structure:", parsed);
+      throw new Error("AI response is not an array of scenes");
+    }
+
+    // Ensure shots are initialized as empty arrays if missing
+    return scenes.map(scene => ({ ...scene, shots: scene.shots || [] }));
+  } catch (error) {
+    console.error("Error regenerating sequencer:", error);
+    throw new Error("Failed to regenerate sequencer");
   }
 };

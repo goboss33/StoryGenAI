@@ -50,12 +50,31 @@ const App: React.FC = () => {
     isAssetsGenerated: false
   });
 
+  const updateState = (updates: Partial<StoryState>) => {
+    setState(prev => ({ ...prev, ...updates }));
+  };
+
+  const handleRegenerationComplete = (updatedDatabase: ProjectBackbone['database']) => {
+    setState(prev => {
+      if (!prev.project) return prev;
+      return {
+        ...prev,
+        project: {
+          ...prev.project,
+          database: updatedDatabase
+        },
+        originalDatabase: JSON.parse(JSON.stringify(updatedDatabase)), // Reset change detection
+      };
+    });
+  };
+
   const [debugMode, setDebugMode] = useState(false);
   const [debugHeight, setDebugHeight] = useState(400);
   const [isResizingDebug, setIsResizingDebug] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [totalUsage, setTotalUsage] = useState<UsageStats>({ inputTokens: 0, outputTokens: 0, cost: 0 });
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisStatus, setAnalysisStatus] = useState<string>("");
   const logEndRef = useRef<HTMLDivElement>(null);
 
   // Debug Resizing Logic
@@ -85,6 +104,10 @@ const App: React.FC = () => {
   useEffect(() => {
     const unsubscribeLogs = subscribeToDebugLog((log) => {
       setLogs(prev => [...prev, { ...log, id: crypto.randomUUID() }]);
+
+      // Update status based on logs for better UX
+      if (log.title.includes("Generating Skeleton")) setAnalysisStatus("Génération de la structure narrative...");
+      if (log.title.includes("Generating Shots")) setAnalysisStatus("Création du découpage technique et des plans...");
     });
 
     const unsubscribeUsage = subscribeToUsage((stats) => {
@@ -124,7 +147,11 @@ const App: React.FC = () => {
   const nextStep = async () => {
     // Point #2: Intercept Step 1 -> Step 2
     if (state.step === 0) {
+      // INSTANT TRANSITION
+      setState(prev => ({ ...prev, step: 1 }));
       setIsAnalyzing(true);
+      setAnalysisStatus("Initialisation de l'IA...");
+
       try {
         const projectBackbone = await analyzeStoryConcept(state.idea, {
           tone: state.tone,
@@ -147,34 +174,34 @@ const App: React.FC = () => {
         setState(prev => ({
           ...prev,
           project: projectBackbone,
-          step: prev.step + 1
+          originalDatabase: JSON.parse(JSON.stringify(projectBackbone.database)), // Deep copy
+          // We are already on step 1, so we just update the data
         }));
 
       } catch (error: any) {
         console.error("Analysis failed", error);
         alert(`Failed to analyze story: ${error.message || "Unknown error"}`);
+        // Go back to step 0 on error
+        setState(prev => ({ ...prev, step: 0 }));
       } finally {
         setIsAnalyzing(false);
+        setAnalysisStatus("");
       }
     } else {
-      setState(prev => ({ ...prev, step: prev.step + 1 }));
+      // If moving from Step 2 (Dialogue) to Step 3 (Production), sync script
+      if (state.step === 2 && state.project) {
+        setState(prev => ({
+          ...prev,
+          step: prev.step + 1,
+          script: prev.project!.database.scenes
+        }));
+      } else {
+        setState(prev => ({ ...prev, step: prev.step + 1 }));
+      }
     }
   };
   const prevStep = () => setState(prev => ({ ...prev, step: prev.step - 1 }));
   const goToStep = (stepIndex: number) => setState(prev => ({ ...prev, step: stepIndex }));
-
-  const updateState = (updates: Partial<StoryState>) => {
-    setState(prev => ({ ...prev, ...updates }));
-  };
-
-  const handleForceCreateScript = () => {
-    setState(prev => ({
-      ...prev,
-      script: [],
-      assets: [],
-      step: 3
-    }));
-  };
 
   const importProject = (data: StoryState) => {
     if (data.idea && Array.isArray(data.script)) {
@@ -186,9 +213,26 @@ const App: React.FC = () => {
 
   const calculateMaxStep = () => {
     let max = 0;
-    if (state.idea.length > 10) max = 1;
-    if (state.stylePrompt) max = 2;
-    if (state.audioScript && state.audioScript.length > 0) max = 3;
+
+    // Step 0 -> 1 Requirements
+    const hasIdea = state.idea.length > 10;
+    const hasType = !!state.videoType;
+    const hasStyle = !!state.visualStyle;
+
+    if (hasIdea && hasType && hasStyle) {
+      max = 1;
+
+      // Step 1 -> 2 Requirements (Project exists)
+      if (state.project) {
+        max = 2;
+
+        // Step 2 -> 3 Requirements (Script exists)
+        if (state.script && state.script.length > 0) {
+          max = 3;
+        }
+      }
+    }
+
     return max;
   };
 
@@ -335,16 +379,26 @@ const App: React.FC = () => {
                   onNext={nextStep}
                   onImport={importProject}
                   isDebugMode={debugMode}
-                  setIsDebugMode={setDebugMode}
                 />
               )}
 
               {state.step === 1 && (
                 <Step2Analysis
-                  project={state.project}
+                  project={state.project || undefined}
+                  originalDatabase={state.originalDatabase || undefined}
                   onUpdate={updateState}
+                  onUpdateAssets={(updatedDatabase) => {
+                    if (state.project) {
+                      updateState({
+                        project: { ...state.project, database: updatedDatabase }
+                      });
+                    }
+                  }}
+                  onRegenerationComplete={handleRegenerationComplete}
                   onNext={nextStep}
                   onBack={prevStep}
+                  isAnalyzing={isAnalyzing}
+                  analysisStatus={analysisStatus}
                 />
               )}
 
@@ -361,7 +415,7 @@ const App: React.FC = () => {
                   onUpdate={updateState}
                   onBack={prevStep}
                   onNext={nextStep}
-                  isNextStepReady={state.script.length > 0}
+                  isNextStepReady={!!state.script && state.script.length > 0}
                 />
               )}
 

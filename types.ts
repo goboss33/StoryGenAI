@@ -109,6 +109,7 @@ export interface StoryState {
   visualStyle: string; // [NEW] Selected visual style name
   storyAnalysis?: ScreenplayStructure;
   project?: ProjectBackbone;
+  originalDatabase?: ProjectBackbone['database']; // [NEW] Track original state for change detection
   script: Scene[];
   stylePrompt: string;
   aspectRatio: '16:9' | '9:16' | '1:1' | '4:3' | '3:4';
@@ -117,6 +118,12 @@ export interface StoryState {
   refineQuestions?: RefineQuestion[];
   refineAnswers?: Record<string, string>;
   audioScript?: AudioScriptItem[];
+}
+
+export interface AssetChangeAnalysis {
+  status: 'CONFIRMED' | 'QUESTION';
+  reasoning: string;
+  questions?: RefineQuestion[];
 }
 
 export interface AudioScriptItem {

@@ -279,8 +279,8 @@ const Step1Idea: React.FC<Props> = ({
             <div className="pt-6 border-t border-slate-100 flex justify-end items-center">
                 <button
                     onClick={onNext}
-                    disabled={!isComplete}
-                    className={`px-8 py-4 rounded-xl font-bold text-lg shadow-lg transition-all flex items-center gap-3 ${isComplete
+                    disabled={!isComplete || !videoType || !visualStyle}
+                    className={`px-8 py-4 rounded-xl font-bold text-lg shadow-lg transition-all flex items-center gap-3 ${isComplete && videoType && visualStyle
                         ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-200 hover:-translate-y-1'
                         : 'bg-slate-200 text-slate-400 cursor-not-allowed'
                         }`}

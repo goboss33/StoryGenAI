@@ -9,9 +9,9 @@ interface StepsProps {
 
 const steps = [
   { title: 'Concept', desc: 'L\'idée' },
-  { title: 'Style', desc: 'D.A. & Format' },
-  { title: 'Script', desc: 'Dialogue & Audio' },
-  { title: 'Production', desc: 'Storyboard Visuel' },
+  { title: 'Structure', desc: 'Univers & Séquencier' },
+  { title: 'Dialogues', desc: 'Script & Audio' },
+  { title: 'Production', desc: 'Visuels & Rendu' },
 ];
 
 export const Steps: React.FC<StepsProps> = ({ currentStep, maxStep, onStepClick }) => {
