@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { StoryState, Pacing, TONES, TARGET_AUDIENCES, AspectRatio } from '../types';
+import { StoryState, Pacing, TONES, TARGET_AUDIENCES, AspectRatio, PRESET_STYLES, VIDEO_TYPES } from '../types';
 
 interface Props {
     idea: string;
@@ -8,6 +8,8 @@ interface Props {
     language: string;
     tone: string;
     targetAudience: string;
+    videoType: string;
+    visualStyle: string;
     aspectRatio: AspectRatio;
     onUpdate: (updates: Partial<StoryState>) => void;
     onNext: () => void;
@@ -38,7 +40,7 @@ const DURATION_MARKERS = [
 ];
 
 const Step1Idea: React.FC<Props> = ({
-    idea, totalDuration, pacing, language, tone, targetAudience, aspectRatio,
+    idea, totalDuration, pacing, language, tone, targetAudience, videoType, visualStyle, aspectRatio,
     onUpdate, onNext
 }) => {
     const isComplete = idea.length > 10;
@@ -77,11 +79,11 @@ const Step1Idea: React.FC<Props> = ({
                         />
                     </section>
 
-                    {/* SECTION 2: FORMAT & DURÉE */}
+                    {/* SECTION 2: FORMAT & TYPE */}
                     <section className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
                         <h2 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
                             <span className="bg-indigo-100 text-indigo-600 w-6 h-6 rounded flex items-center justify-center text-xs">2</span>
-                            Format & Durée
+                            Format & Type
                         </h2>
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -116,40 +118,53 @@ const Step1Idea: React.FC<Props> = ({
                                 </div>
                             </div>
 
-                            {/* Duration Slider */}
+                            {/* Video Type Selector */}
                             <div className="col-span-2">
-                                <div className="flex justify-between items-end mb-4">
-                                    <label className="text-sm font-bold text-slate-600 uppercase tracking-wider">Durée Souhaitée</label>
-                                    <span className="text-3xl font-bold text-indigo-600">{formatDuration(totalDuration)}</span>
-                                </div>
-                                <div className="relative px-2 mb-8">
-                                    <input
-                                        type="range"
-                                        min="5"
-                                        max="5400" // 90 mins
-                                        step="5"
-                                        value={totalDuration}
-                                        onChange={(e) => onUpdate({ totalDuration: parseInt(e.target.value) })}
-                                        className="w-full h-3 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600 relative z-10"
-                                    />
-                                    {/* Markers */}
-                                    <div className="absolute top-6 left-0 right-0 h-4 pointer-events-none">
-                                        {DURATION_MARKERS.map(marker => {
-                                            const percent = ((marker.value - 5) / (5400 - 5)) * 100;
-                                            return (
-                                                <div key={marker.value} className="absolute flex flex-col items-center transform -translate-x-1/2" style={{ left: `${percent}%` }}>
-                                                    <div className="w-0.5 h-2 bg-slate-300 mb-1"></div>
-                                                    <div className="bg-slate-100 text-[10px] font-bold text-slate-500 px-1.5 py-0.5 rounded border border-slate-200 whitespace-nowrap group relative cursor-help pointer-events-auto">
-                                                        {marker.desc}
-                                                        {/* Tooltip */}
-                                                        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-xs rounded px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-20">
-                                                            {marker.label}
-                                                        </div>
+                                <label className="text-sm font-bold text-slate-600 uppercase tracking-wider block mb-3">Type de Vidéo</label>
+                                <select
+                                    value={videoType}
+                                    onChange={(e) => onUpdate({ videoType: e.target.value })}
+                                    className="w-full p-4 rounded-xl border border-slate-200 bg-slate-50 font-medium text-slate-700 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none"
+                                >
+                                    <option value="">Sélectionner un type...</option>
+                                    {VIDEO_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+                                </select>
+                            </div>
+                        </div>
+
+                        {/* Duration Slider */}
+                        <div className="mt-8">
+                            <div className="flex justify-between items-end mb-4">
+                                <label className="text-sm font-bold text-slate-600 uppercase tracking-wider">Durée Souhaitée</label>
+                                <span className="text-3xl font-bold text-indigo-600">{formatDuration(totalDuration)}</span>
+                            </div>
+                            <div className="relative px-2 mb-8">
+                                <input
+                                    type="range"
+                                    min="5"
+                                    max="5400" // 90 mins
+                                    step="5"
+                                    value={totalDuration}
+                                    onChange={(e) => onUpdate({ totalDuration: parseInt(e.target.value) })}
+                                    className="w-full h-3 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600 relative z-10"
+                                />
+                                {/* Markers */}
+                                <div className="absolute top-6 left-0 right-0 h-4 pointer-events-none">
+                                    {DURATION_MARKERS.map(marker => {
+                                        const percent = ((marker.value - 5) / (5400 - 5)) * 100;
+                                        return (
+                                            <div key={marker.value} className="absolute flex flex-col items-center transform -translate-x-1/2" style={{ left: `${percent}%` }}>
+                                                <div className="w-0.5 h-2 bg-slate-300 mb-1"></div>
+                                                <div className="bg-slate-100 text-[10px] font-bold text-slate-500 px-1.5 py-0.5 rounded border border-slate-200 whitespace-nowrap group relative cursor-help pointer-events-auto">
+                                                    {marker.desc}
+                                                    {/* Tooltip */}
+                                                    <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-xs rounded px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-20">
+                                                        {marker.label}
                                                     </div>
                                                 </div>
-                                            );
-                                        })}
-                                    </div>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             </div>
                         </div>
@@ -161,6 +176,43 @@ const Step1Idea: React.FC<Props> = ({
                             <span className="bg-indigo-100 text-indigo-600 w-6 h-6 rounded flex items-center justify-center text-xs">3</span>
                             Style & Audience
                         </h2>
+
+                        {/* Visual Style Carousel */}
+                        <div className="mb-8">
+                            <label className="text-sm font-bold text-slate-600 uppercase tracking-wider block mb-3">Style Visuel</label>
+                            <div className="flex gap-4 overflow-x-auto pb-4 snap-x scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
+                                {PRESET_STYLES.map(style => (
+                                    <button
+                                        key={style.name}
+                                        onClick={() => onUpdate({ visualStyle: style.name, stylePrompt: style.prompt })}
+                                        className={`flex-none w-48 snap-center group text-left transition-all relative overflow-hidden rounded-xl border-2 ${visualStyle === style.name
+                                            ? 'border-indigo-600 ring-2 ring-indigo-200 ring-offset-2'
+                                            : 'border-transparent hover:border-slate-300'
+                                            }`}
+                                    >
+                                        <div className="aspect-video w-full bg-slate-100 relative">
+                                            <img
+                                                src={style.image}
+                                                alt={style.name}
+                                                className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                                            />
+                                            {visualStyle === style.name && (
+                                                <div className="absolute inset-0 bg-indigo-600/20 flex items-center justify-center">
+                                                    <div className="bg-white rounded-full p-1 shadow-lg">
+                                                        <svg className="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="p-3 bg-white">
+                                            <span className={`text-sm font-bold block truncate ${visualStyle === style.name ? 'text-indigo-700' : 'text-slate-700'}`}>
+                                                {style.name}
+                                            </span>
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                             {/* Tone Selector */}

@@ -41,6 +41,8 @@ const App: React.FC = () => {
     language: 'English',
     tone: 'Inspirant',
     targetAudience: 'Tout public',
+    videoType: '',
+    visualStyle: 'Cinematic Realistic',
     script: [],
     stylePrompt: 'Cinematic lighting, photorealistic, 8k, highly detailed',
     aspectRatio: '16:9',
@@ -128,7 +130,9 @@ const App: React.FC = () => {
           tone: state.tone,
           targetAudience: state.targetAudience,
           language: state.language,
-          duration: state.totalDuration
+          duration: state.totalDuration,
+          videoType: state.videoType,
+          visualStyle: state.visualStyle
         });
 
         // Log the filled result
@@ -324,12 +328,14 @@ const App: React.FC = () => {
                   language={state.language}
                   tone={state.tone}
                   targetAudience={state.targetAudience}
-
-                  audioScript={state.audioScript}
+                  videoType={state.videoType}
+                  visualStyle={state.visualStyle}
+                  aspectRatio={state.aspectRatio}
                   onUpdate={updateState}
-                  onBack={prevStep}
                   onNext={nextStep}
-                  isNextStepReady={state.script.length > 0}
+                  onImport={importProject}
+                  isDebugMode={debugMode}
+                  setIsDebugMode={setDebugMode}
                 />
               )}
 

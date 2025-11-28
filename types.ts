@@ -105,6 +105,8 @@ export interface StoryState {
   language: string;
   tone: string;
   targetAudience: string;
+  videoType: string; // [NEW] Type of video (ad, vlog, etc.)
+  visualStyle: string; // [NEW] Selected visual style name
   storyAnalysis?: ScreenplayStructure;
   project?: ProjectBackbone;
   script: Scene[];
@@ -140,12 +142,24 @@ export interface ElevenLabsVoice {
 export type AspectRatio = '16:9' | '9:16';
 
 export const PRESET_STYLES = [
-  { name: 'Cinematic Realistic', prompt: 'Cinematic lighting, photorealistic, 8k, highly detailed, movie still' },
-  { name: 'Studio Ghibli Anime', prompt: 'Studio Ghibli style, hand painted' },
-  { name: 'Watercolor', prompt: 'Watercolor painting, artistic, soft edges, pastel colors' },
-  { name: 'Cyberpunk', prompt: 'Cyberpunk, neon lights, futuristic, high contrast, sci-fi atmosphere' },
-  { name: 'Pixel Art', prompt: 'Pixel art, 16-bit, retro game style, vibrant' },
-  { name: 'Black & White Noir', prompt: 'Film noir, black and white, dramatic shadows, high contrast, vintage' },
+  { name: 'Cinematic Realistic', prompt: 'Cinematic lighting, photorealistic, 8k, highly detailed, movie still', image: 'https://placehold.co/320x180/1a1a1a/ffffff?text=Cinematic' },
+  { name: 'Studio Ghibli Anime', prompt: 'Studio Ghibli style, hand painted, vibrant colors, detailed background', image: 'https://placehold.co/320x180/2c3e50/ffffff?text=Ghibli' },
+  { name: 'Pixar 3D', prompt: 'Pixar style 3D animation, cute, vibrant, high quality render, soft lighting', image: 'https://placehold.co/320x180/e67e22/ffffff?text=Pixar' },
+  { name: 'Watercolor', prompt: 'Watercolor painting, artistic, soft edges, pastel colors', image: 'https://placehold.co/320x180/3498db/ffffff?text=Watercolor' },
+  { name: 'Cyberpunk', prompt: 'Cyberpunk, neon lights, futuristic, high contrast, sci-fi atmosphere', image: 'https://placehold.co/320x180/8e44ad/ffffff?text=Cyberpunk' },
+  { name: 'Pixel Art', prompt: 'Pixel art, 16-bit, retro game style, vibrant', image: 'https://placehold.co/320x180/27ae60/ffffff?text=Pixel+Art' },
+  { name: 'Black & White Noir', prompt: 'Film noir, black and white, dramatic shadows, high contrast, vintage', image: 'https://placehold.co/320x180/000000/ffffff?text=Noir' },
+  { name: '2D Cartoon', prompt: 'Classic 2D cartoon style, bold lines, flat colors, expressive', image: 'https://placehold.co/320x180/f1c40f/ffffff?text=Cartoon' },
+];
+
+export const VIDEO_TYPES = [
+  { id: 'ad', label: 'Publicité' },
+  { id: 'vlog', label: 'Vlog' },
+  { id: 'cartoon', label: 'Dessin Animé' },
+  { id: 'tutorial', label: 'Tutoriel' },
+  { id: 'documentary', label: 'Documentaire' },
+  { id: 'movie', label: 'Court Métrage' },
+  { id: 'music_video', label: 'Clip Musical' },
 ];
 
 export const TONES = [

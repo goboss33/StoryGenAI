@@ -129,7 +129,7 @@ const trackUsage = (model: string, inputTokens: number, outputTokens: number, sp
 // --- AGENTIC WORKFLOW: STEP 1 - SKELETON GENERATION ---
 const generateStorySkeleton = async (
   idea: string,
-  settings: { tone: string; targetAudience: string; language: string; duration: number }
+  settings: { tone: string; targetAudience: string; language: string; duration: number; videoType: string; visualStyle: string }
 ): Promise<import("../types").ProjectBackbone> => {
   const prompt = `
     Role: Showrunner & Lead Writer.
@@ -137,6 +137,8 @@ const generateStorySkeleton = async (
     
     INPUT:
     - Idea: "${idea}"
+    - Type: ${settings.videoType}
+    - Visual Style: ${settings.visualStyle}
     - Tone: ${settings.tone}
     - Audience: ${settings.targetAudience}
     - Language: ${settings.language}
@@ -232,7 +234,7 @@ const generateSceneShots = async (
 // --- ORCHESTRATOR ---
 export const analyzeStoryConcept = async (
   idea: string,
-  settings: { tone: string; targetAudience: string; language: string; duration: number }
+  settings: { tone: string; targetAudience: string; language: string; duration: number; videoType: string; visualStyle: string }
 ): Promise<import("../types").ProjectBackbone> => {
   if (!apiKey || apiKey === "MISSING_KEY") throw new Error("API Key is missing.");
 
