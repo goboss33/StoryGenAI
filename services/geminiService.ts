@@ -738,7 +738,6 @@ export const generateScript = async (
 };
 
 // --- 2.5 Generate Screenplay (Step 3) ---
-// --- 2.5 Generate Screenplay (Step 3) ---
 export const generateScreenplay = async (
   project: import("../types").ProjectBackbone
 ): Promise<import("../types").ProjectBackbone> => {
@@ -746,86 +745,70 @@ export const generateScreenplay = async (
     const { database, meta_data, config } = project;
     const scenes = database.scenes;
 
-    logDebug('info', 'Agentic Workflow', { step: '3. Generating Screenplay', sceneCount: scenes.length });
+    logDebug('info', 'Agentic Workflow', { step: '3. Generating Screenplay (Chat Mode)', sceneCount: scenes.length });
 
-    // SEQUENTIAL GENERATION LOGIC
+    // STATEFUL GENERATION LOGIC (CHAT)
+    const modelName = "gemini-2.0-flash-exp";
+    const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "application/json" } });
+
+    // 1. Initialize Chat with Project Bible
+    const projectBible = `
+      Role: Professional Screenwriter.
+      Task: You are writing a screenplay for a video project. You will receive scene details one by one.
+      
+      PROJECT CONTEXT (THE BIBLE):
+      Title: ${meta_data.title}
+      Tone: ${config.tone_style}
+      Intent: ${meta_data.user_intent}
+      Language: ${config.primary_language}
+      
+      CHARACTERS:
+      ${database.characters.map(c => `- ${c.name} (${c.role}): ${c.visual_seed.description}`).join('\n')}
+      
+      LOCATIONS:
+      ${database.locations.map(l => `- ${l.name} (${l.interior_exterior}): ${l.environment_prompt}`).join('\n')}
+
+      INSTRUCTIONS:
+      1. Maintain consistency with previous scenes (you have full memory).
+      2. Write in standard screenplay format.
+      3. Output JSON only.
+    `;
+
+    const chatSession = model.startChat({
+      history: [
+        {
+          role: "user",
+          parts: [{ text: projectBible }],
+        },
+        {
+          role: "model",
+          parts: [{ text: "Understood. I am ready to write the screenplay scene by scene, maintaining full context and consistency." }],
+        },
+      ],
+    });
+
     const updatedScenes: import("../types").SceneTemplate[] = [];
-    let previousSceneContext = "Start of the movie.";
 
     for (let i = 0; i < scenes.length; i++) {
       const scene = scenes[i];
 
-      // If script content already exists, keep it but update context for next scene
+      // If script content already exists, inject it into history to maintain context
       if (scene.script_content && scene.script_content.lines && scene.script_content.lines.length > 0) {
         updatedScenes.push(scene);
-        previousSceneContext = `Previous Scene (${scene.slugline}): Ended with ${scene.script_content.lines.slice(-3).map(l => l.content).join(' ')}`;
+        await chatSession.sendMessage(`
+          [SYSTEM: Scene ${i + 1} was already written. Here is the content for your memory:]
+          Slugline: ${scene.slugline}
+          Content: ${JSON.stringify(scene.script_content)}
+        `);
         continue;
       }
 
-      const template = `
-        Role: Professional Screenwriter.
-        Task: Write the Screenplay Content for Scene {{sceneNumber}} of {{totalScenes}}.
+      const scenePrompt = `
+        WRITE SCENE ${i + 1} of ${scenes.length}:
         
-        PROJECT CONTEXT:
-        Title: {{title}}
-        Tone: {{tone}}
-        Intent: {{intent}}
-        Language: {{language}}
-        
-        PREVIOUS SCENE CONTEXT:
-        {{previousSceneContext}}
-        
-        CURRENT SCENE CONTEXT:
-        Slugline: {{slugline}}
-        Goal: {{goal}}
-        Estimated Duration: {{duration}} seconds
-        Characters in scene: {{characters}}
-        
-        INSTRUCTIONS:
-        1. Write the script in a standard screenplay format (Slugline -> Action -> Dialogue).
-        2. Ensure the scene flows logically from the previous one.
-        3. Match the estimated duration (approx 1 page per minute, so {{duration}}s is about {{durationPercentage}}% of a page).
-        4. Use a mix of Action, Dialogue, and Parentheticals.
-        5. **IMPORTANT**: Write a detailed scene with at least 7-10 lines of content. Don't be too brief.
-        
-        OUTPUT JSON SCHEMA:
-        {
-          "lines": [
-            { 
-              "type": "slugline" | "action" | "dialogue" | "parenthetical" | "transition", 
-              "content": "Text content", 
-              "speaker": "CHARACTER NAME (only for dialogue)", 
-              "parenthetical": "(optional emotion)"
-            }
-          ]
-        }
-      `;
-
-      const prompt = `
-        Role: Professional Screenwriter.
-        Task: Write the Screenplay Content for Scene ${i + 1} of ${scenes.length}.
-        
-        PROJECT CONTEXT:
-        Title: ${meta_data.title}
-        Tone: ${config.tone_style}
-        Intent: ${meta_data.user_intent}
-        Language: ${config.primary_language}
-        
-        PREVIOUS SCENE CONTEXT:
-        ${previousSceneContext}
-        
-        CURRENT SCENE CONTEXT:
         Slugline: ${scene.slugline}
         Goal: ${scene.narrative_goal}
         Estimated Duration: ${scene.estimated_duration_sec} seconds
-        Characters in scene: ${database.characters.map(c => `${c.name} (${c.role})`).join(', ')}
-        
-        INSTRUCTIONS:
-        1. Write the script in a standard screenplay format (Slugline -> Action -> Dialogue).
-        2. Ensure the scene flows logically from the previous one.
-        3. Match the estimated duration (approx 1 page per minute, so ${scene.estimated_duration_sec}s is about ${Math.ceil(scene.estimated_duration_sec / 60 * 100)}% of a page).
-        4. Use a mix of Action, Dialogue, and Parentheticals.
-        5. **IMPORTANT**: Write a detailed scene with at least 7-10 lines of content. Don't be too brief.
         
         OUTPUT JSON SCHEMA:
         {
@@ -842,18 +825,15 @@ export const generateScreenplay = async (
 
       try {
         // INTERCEPT FOR REVIEW
-        const finalPrompt = await checkReviewMode(prompt, `Generate Screenplay: ${scene.slugline}`);
+        const finalPrompt = await checkReviewMode(scenePrompt, `Generate Screenplay: ${scene.slugline}`);
 
-        const modelName = "gemini-2.0-flash-exp";
-        const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "application/json" } });
+        logDebug('req', `Generate Screenplay (Chat): ${scene.slugline}`, { sceneId: scene.id }, { model: modelName, dynamicPrompt: scenePrompt, finalPrompt });
 
-        logDebug('req', `Generate Screenplay: ${scene.slugline}`, { sceneId: scene.id }, { model: modelName, dynamicPrompt: template, finalPrompt });
-
-        const result = await model.generateContent(finalPrompt);
+        const result = await chatSession.sendMessage(finalPrompt);
         const text = result.response.text();
         const content = JSON.parse(text);
 
-        logDebug('res', `Generate Screenplay: ${scene.slugline}`, { content }); // Log parsed object
+        logDebug('res', `Generate Screenplay (Chat): ${scene.slugline}`, { content });
 
         trackUsage(modelName, finalPrompt.length / 4, text.length / 4);
 
@@ -866,13 +846,9 @@ export const generateScreenplay = async (
 
         updatedScenes.push(newScene);
 
-        // Update context for next iteration
-        const lastLines = newScene.script_content.lines.slice(-3).map(l => l.content).join(' ');
-        previousSceneContext = `Previous Scene (${scene.slugline}): Ended with ${lastLines}`;
-
-      } catch (err) {
-        console.error(`Failed to generate screenplay for scene ${scene.id}`, err);
-        updatedScenes.push(scene); // Keep original on error
+      } catch (error) {
+        console.error(`Failed to generate scene ${scene.slugline}`, error);
+        updatedScenes.push(scene); // Keep original if failed
       }
     }
 
