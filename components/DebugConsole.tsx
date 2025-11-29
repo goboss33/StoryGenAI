@@ -213,14 +213,46 @@ const LogItem: React.FC<{ log: LogEntry }> = ({ log }) => {
     );
 };
 
+const HighlightVariables: React.FC<{ text: string }> = ({ text }) => {
+    const parts = text.split(/(\{\{.*?\}\})/g);
+    return (
+        <span>
+            {parts.map((part, i) => {
+                if (part.startsWith('{{') && part.endsWith('}}')) {
+                    return (
+                        <span key={i} className="text-amber-400 font-bold">
+                            {part}
+                        </span>
+                    );
+                }
+                return <span key={i}>{part}</span>;
+            })}
+        </span>
+    );
+};
+
 const AgentMessageItem: React.FC<{ message: AgentMessage }> = ({ message }) => {
     const isUser = message.role === 'user';
     const isSystem = message.role === 'system';
+    const [showDynamic, setShowDynamic] = useState(false);
+    const [isExpanded, setIsExpanded] = useState(true);
+
+    const hasPrompts = !!message.dynamicPrompt || !!message.finalPrompt;
+    const displayContent = showDynamic ? message.dynamicPrompt : message.finalPrompt;
+    const hasData = !!message.data;
+
+    // Hide content block if it's just a duplicate of the prompt (User messages usually)
+    // If it's a user message and hasPrompts is true, the content IS the prompt, so we hide the raw content block.
+    const shouldHideContent = isUser && hasPrompts && !hasData;
+
+    const copyToClipboard = (text: string) => {
+        navigator.clipboard.writeText(text);
+    };
 
     return (
         <div className={`flex flex-col gap-1 p-2 rounded border ${isSystem ? 'bg-slate-900 border-slate-700' :
-            isUser ? 'bg-slate-800/50 border-slate-700 ml-8' :
-                'bg-indigo-900/10 border-indigo-900/30 mr-8'
+            isUser ? 'bg-slate-800/50 border-slate-700 mr-8' : // User = Parent (Full width or slight margin right)
+                'bg-indigo-900/10 border-indigo-900/30 ml-8'   // Model = Child (Indented left)
             }`}>
             <div className="flex items-center gap-2 mb-1">
                 <span className={`text-[9px] font-bold uppercase px-1.5 rounded ${isSystem ? 'bg-slate-700 text-slate-300' :
@@ -230,10 +262,68 @@ const AgentMessageItem: React.FC<{ message: AgentMessage }> = ({ message }) => {
                     {message.role}
                 </span>
                 <span className="text-[9px] text-slate-500">{new Date(message.timestamp).toLocaleTimeString()}</span>
+
+                {/* Model Badge */}
+                {message.model && (
+                    <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] bg-indigo-900/50 text-indigo-300 border border-indigo-800/50 font-mono">
+                        {message.model}
+                    </span>
+                )}
+
+                <div className="ml-auto flex items-center gap-2">
+                    {/* Prompt Toggle */}
+                    {hasPrompts && (
+                        <div className="flex bg-slate-800 rounded overflow-hidden border border-slate-700">
+                            <button
+                                onClick={() => setShowDynamic(true)}
+                                className={`px-2 py-0.5 text-[9px] font-bold uppercase transition-colors ${showDynamic ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                                title="Show Dynamic Prompt (Template)"
+                            >
+                                Dynamic
+                            </button>
+                            <button
+                                onClick={() => setShowDynamic(false)}
+                                className={`px-2 py-0.5 text-[9px] font-bold uppercase transition-colors ${!showDynamic ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                                title="Show Final Prompt (Sent to AI)"
+                            >
+                                Final
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Copy Button */}
+                    <button
+                        onClick={() => copyToClipboard(hasData ? JSON.stringify(message.data, null, 2) : message.content)}
+                        className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-white transition-opacity"
+                        title="Copy Content"
+                    >
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                    </button>
+                </div>
             </div>
-            <div className="text-xs font-mono whitespace-pre-wrap text-slate-300">
-                {message.content}
-            </div>
+
+            {/* Prompt Display (if available) */}
+            {hasPrompts && displayContent && (
+                <div className="bg-slate-950 p-2 rounded border border-slate-800 text-slate-300 whitespace-pre-wrap break-words overflow-hidden select-text text-[10px] font-mono relative mb-2">
+                    <div className="absolute top-1 right-1 text-[9px] text-slate-600 font-bold uppercase pointer-events-none">
+                        {showDynamic ? 'TEMPLATE' : 'PAYLOAD'}
+                    </div>
+                    {showDynamic ? <HighlightVariables text={displayContent} /> : displayContent}
+                </div>
+            )}
+
+            {/* Content / Data Display */}
+            {!shouldHideContent && (
+                hasData ? (
+                    <div className="bg-slate-950/50 p-2 rounded border border-slate-800 overflow-x-auto custom-scrollbar">
+                        <JsonViewer data={message.data} initialExpandedDepth={1} />
+                    </div>
+                ) : (
+                    <div className="text-xs font-mono whitespace-pre-wrap text-slate-300">
+                        {message.content}
+                    </div>
+                )
+            )}
         </div>
     );
 };

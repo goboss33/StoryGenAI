@@ -82,7 +82,7 @@ class AgentManager {
     return history;
   }
 
-  public async sendMessage(role: AgentRole, session: ChatSession, text: string): Promise<string> {
+  public async sendMessage(role: AgentRole, session: ChatSession, text: string, metadata?: { model?: string; dynamicPrompt?: string; finalPrompt?: string; data?: any }): Promise<string> {
     console.log(`[AgentManager ${this.id}] sendMessage for ${role}: "${text.slice(0, 50)}..."`);
 
     // Log User Message
@@ -91,7 +91,11 @@ class AgentManager {
       role: 'user',
       agentRole: role,
       content: text,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      // Attach prompt metadata to the user message (request)
+      model: metadata?.model,
+      dynamicPrompt: metadata?.dynamicPrompt,
+      finalPrompt: metadata?.finalPrompt
     };
     this.addMessageToHistory(role, userMsg);
     this.notifyListeners(role, userMsg);
@@ -99,18 +103,28 @@ class AgentManager {
     const result = await session.sendMessage(text);
     const responseText = result.response.text();
 
+    // Try to parse JSON data from response
+    let parsedData = null;
+    try {
+      parsedData = JSON.parse(responseText);
+    } catch (e) {
+      // Not JSON or partial JSON
+    }
+
     // Log Model Message
     const modelMsg: AgentMessage = {
       id: crypto.randomUUID(),
       role: 'model',
       agentRole: role,
       content: responseText,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      // Attach parsed data to the model message (response)
+      model: metadata?.model,
+      data: parsedData
     };
     this.addMessageToHistory(role, modelMsg);
     this.notifyListeners(role, modelMsg);
 
-    return responseText;
     return responseText;
   }
 }
@@ -150,29 +164,30 @@ export const analyzeStoryConcept = async (
   const agentManager = AgentManager.getInstance();
   const directorSession = agentManager.getAgent(AgentRole.DIRECTOR, model, systemInstruction);
 
-  const prompt = `
+  // 1. Define Template
+  const promptTemplate = `
     INPUT:
-    - Idea: "${idea}"
-    - Type: ${settings.videoType}
-    - Visual Style: ${settings.visualStyle}
-    - Tone: ${settings.tone}
-    - Audience: ${settings.targetAudience}
-    - Language: ${settings.language}
-    - Total Duration: ${settings.duration}s
+    - Idea: "{{idea}}"
+    - Type: {{videoType}}
+    - Visual Style: {{visualStyle}}
+    - Tone: {{tone}}
+    - Audience: {{targetAudience}}
+    - Language: {{language}}
+    - Total Duration: {{duration}}s
 
     INSTRUCTIONS:
     1. **Characters**: Create detailed profiles (Name, Role, Visual Description).
     2. **Locations**: Create detailed profiles (Name, Environment Prompt).
     3. **Scene List**: Break the story into logical scenes.
        - Assign an \`estimated_duration_sec\` to each scene.
-       - **CRITICAL**: The sum of scene durations MUST equal ${settings.duration}s (+/- 5s).
+       - **CRITICAL**: The sum of scene durations MUST equal {{duration}}s (+/- 5s).
        - **DO NOT generate shots yet.** Leave the "shots" array empty [].
 
     OUTPUT JSON SCHEMA:
     {
       "project_id": "uuid",
-      "meta_data": { "title": "string", "user_intent": "${idea}", "created_at": "${new Date().toISOString()}" },
-      "config": { "aspect_ratio": "16:9", "resolution": "1080p", "target_fps": 24, "primary_language": "${settings.language}", "target_audience": "${settings.targetAudience}", "tone_style": "${settings.tone}" },
+      "meta_data": { "title": "string", "user_intent": "{{idea}}", "created_at": "${new Date().toISOString()}" },
+      "config": { "aspect_ratio": "16:9", "resolution": "1080p", "target_fps": 24, "primary_language": "{{language}}", "target_audience": "{{targetAudience}}", "tone_style": "{{tone}}" },
       "global_assets": { "art_style_prompt": "string", "negative_prompt": "string", "music_theme_id": "string" },
       "database": {
         "characters": [{ "id": "char_01", "name": "string", "role": "string", "visual_seed": { "description": "string" } }],
@@ -182,17 +197,31 @@ export const analyzeStoryConcept = async (
           "estimated_duration_sec": 10, "shots": [] 
         }]
       },
-      "final_render": { "total_duration_sec": ${settings.duration} }
+      "final_render": { "total_duration_sec": {{duration}} }
     }
   `;
 
-  // INTERCEPT FOR REVIEW
-  const finalPrompt = await checkReviewMode(prompt, 'Director: Generate Skeleton');
+  // 2. Fill Template
+  const finalPrompt = promptTemplate
+    .replace(/{{idea}}/g, idea)
+    .replace(/{{videoType}}/g, settings.videoType)
+    .replace(/{{visualStyle}}/g, settings.visualStyle)
+    .replace(/{{tone}}/g, settings.tone)
+    .replace(/{{targetAudience}}/g, settings.targetAudience)
+    .replace(/{{language}}/g, settings.language)
+    .replace(/{{duration}}/g, settings.duration.toString());
 
-  logDebug('req', 'Director Agent: Generate Skeleton', { idea }, { model: modelName, finalPrompt });
+  // INTERCEPT FOR REVIEW
+  const reviewedPrompt = await checkReviewMode(finalPrompt, 'Director: Generate Skeleton');
+
+  logDebug('req', 'Director Agent: Generate Skeleton', { idea }, { model: modelName, finalPrompt: reviewedPrompt });
 
   // Use AgentManager to send message (handles logging)
-  const text = await agentManager.sendMessage(AgentRole.DIRECTOR, directorSession, finalPrompt);
+  const text = await agentManager.sendMessage(AgentRole.DIRECTOR, directorSession, reviewedPrompt, {
+    model: modelName,
+    finalPrompt: reviewedPrompt,
+    dynamicPrompt: promptTemplate // Pass the raw template
+  });
 
   trackUsage(modelName, finalPrompt.length / 4, text.length / 4);
   return JSON.parse(text);
@@ -261,12 +290,13 @@ export const generateScreenplay = async (
         continue;
       }
 
-      const scenePrompt = `
-        WRITE SCENE ${i + 1} of ${scenes.length}:
+      // 1. Define Template
+      const scenePromptTemplate = `
+        WRITE SCENE {{sceneIndex}} of {{totalScenes}}:
         
-        Slugline: ${scene.slugline}
-        Goal: ${scene.narrative_goal}
-        Estimated Duration: ${scene.estimated_duration_sec} seconds
+        Slugline: {{slugline}}
+        Goal: {{goal}}
+        Estimated Duration: {{duration}} seconds
         
         OUTPUT JSON SCHEMA:
         {
@@ -281,14 +311,26 @@ export const generateScreenplay = async (
         }
       `;
 
+      // 2. Fill Template
+      const scenePrompt = scenePromptTemplate
+        .replace(/{{sceneIndex}}/g, (i + 1).toString())
+        .replace(/{{totalScenes}}/g, scenes.length.toString())
+        .replace(/{{slugline}}/g, scene.slugline)
+        .replace(/{{goal}}/g, scene.narrative_goal)
+        .replace(/{{duration}}/g, scene.estimated_duration_sec.toString());
+
       try {
         // INTERCEPT FOR REVIEW
         const finalPrompt = await checkReviewMode(scenePrompt, `Screenwriter: Scene ${scene.slugline}`);
 
-        logDebug('req', `Screenwriter Agent: Scene ${scene.slugline}`, { sceneId: scene.id }, { model: modelName, dynamicPrompt: scenePrompt, finalPrompt });
+        logDebug('req', `Screenwriter Agent: Scene ${scene.slugline}`, { sceneId: scene.id }, { model: modelName, dynamicPrompt: scenePromptTemplate, finalPrompt: finalPrompt });
 
         // Use AgentManager to send message
-        const text = await agentManager.sendMessage(AgentRole.SCREENWRITER, chatSession, finalPrompt);
+        const text = await agentManager.sendMessage(AgentRole.SCREENWRITER, chatSession, finalPrompt, {
+          model: modelName,
+          finalPrompt: finalPrompt,
+          dynamicPrompt: scenePromptTemplate // Pass the raw template
+        });
         const content = JSON.parse(text);
 
         logDebug('res', `Screenwriter Agent: Scene ${scene.slugline}`, { content });

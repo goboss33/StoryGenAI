@@ -189,6 +189,11 @@ export interface AgentMessage {
   agentRole: AgentRole;
   content: string;
   timestamp: number;
+  // Metadata for Debug Console
+  model?: string;
+  dynamicPrompt?: string;
+  finalPrompt?: string;
+  data?: any; // Parsed JSON content
 }
 
 // --- ADVANCED PROMPT ENGINEERING STRUCTURES ---
