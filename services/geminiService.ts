@@ -51,11 +51,17 @@ export interface PendingRequestData {
 
 type PendingRequestListener = (request: PendingRequestData | null) => void;
 let pendingRequestListeners: PendingRequestListener[] = [];
-// Store active requests by ID to allow external resolution
-const activeRequests = new Map<string, PendingRequest>();
+
+// REQUEST QUEUE (To handle parallel requests sequentially)
+let requestQueue: PendingRequest[] = [];
 
 export const subscribeToPendingRequests = (listener: PendingRequestListener) => {
   pendingRequestListeners.push(listener);
+  // If there is already a pending request (head of queue), notify immediately
+  if (requestQueue.length > 0) {
+    const head = requestQueue[0];
+    listener({ id: head.id, title: head.title, prompt: head.prompt });
+  }
   return () => { pendingRequestListeners = pendingRequestListeners.filter(l => l !== listener); };
 };
 
@@ -65,22 +71,48 @@ const notifyPendingRequest = (request: PendingRequest | null) => {
 };
 
 export const resolvePendingRequest = (id: string, newPrompt: string) => {
-  const req = activeRequests.get(id);
-  if (req) {
+  const index = requestQueue.findIndex(r => r.id === id);
+
+  if (index !== -1) {
+    const req = requestQueue[index];
+
+    // Resolve the promise
     req.resolve(newPrompt);
-    activeRequests.delete(id);
+
+    // Remove from queue
+    requestQueue.splice(index, 1);
+
+    // If queue still has items, notify the next one (Head)
+    if (requestQueue.length > 0) {
+      notifyPendingRequest(requestQueue[0]);
+    } else {
+      notifyPendingRequest(null);
+    }
   } else {
-    console.warn(`[GeminiService] Attempted to resolve unknown request ${id}`);
+    console.warn(`[GeminiService] Attempted to resolve unknown or already handled request ${id}`);
   }
 };
 
 export const rejectPendingRequest = (id: string) => {
-  const req = activeRequests.get(id);
-  if (req) {
+  const index = requestQueue.findIndex(r => r.id === id);
+
+  if (index !== -1) {
+    const req = requestQueue[index];
+
+    // Reject the promise
     req.reject();
-    activeRequests.delete(id);
+
+    // Remove from queue
+    requestQueue.splice(index, 1);
+
+    // If queue still has items, notify the next one
+    if (requestQueue.length > 0) {
+      notifyPendingRequest(requestQueue[0]);
+    } else {
+      notifyPendingRequest(null);
+    }
   } else {
-    console.warn(`[GeminiService] Attempted to reject unknown request ${id}`);
+    console.warn(`[GeminiService] Attempted to reject unknown or already handled request ${id}`);
   }
 };
 
@@ -92,24 +124,29 @@ const checkReviewMode = async (prompt: string, title: string): Promise<string> =
   console.log(`[GeminiService] Pausing for review...`);
   return new Promise((resolve, reject) => {
     const id = crypto.randomUUID();
+
     const pendingRequest: PendingRequest = {
       id,
       title,
       prompt,
       resolve: (newPrompt) => {
-        console.log(`[GeminiService] Request resolved`);
-        notifyPendingRequest(null); // Clear pending
+        console.log(`[GeminiService] Request ${id} resolved`);
         resolve(newPrompt);
       },
       reject: () => {
-        console.log(`[GeminiService] Request rejected`);
-        notifyPendingRequest(null);
+        console.log(`[GeminiService] Request ${id} rejected`);
         reject(new Error("Request cancelled by user"));
       }
     };
 
-    activeRequests.set(id, pendingRequest);
-    notifyPendingRequest(pendingRequest);
+    // Add to Queue
+    requestQueue.push(pendingRequest);
+
+    // Only notify if this is the ONLY (or first) item in the queue
+    // If there are others ahead, this one waits its turn
+    if (requestQueue.length === 1) {
+      notifyPendingRequest(pendingRequest);
+    }
   });
 };
 
