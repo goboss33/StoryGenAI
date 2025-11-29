@@ -275,7 +275,7 @@ const trackUsage = (model: string, inputTokens: number, outputTokens: number, sp
 };
 
 // --- AGENTIC WORKFLOW: STEP 1 - SKELETON GENERATION ---
-const generateStorySkeleton = async (
+export const analyzeStoryConcept = async (
   idea: string,
   settings: { tone: string; targetAudience: string; language: string; duration: number; videoType: string; visualStyle: string }
 ): Promise<import("../types").ProjectBackbone> => {
@@ -351,19 +351,19 @@ const generateSceneShots = async (
     Task: Generate a detailed SHOT LIST for ONE specific scene.
     
     CONTEXT:
-    - Project Title: "{{title}}"
-    - Style: "{{style}}"
-    - Characters: {{characters}}
-    - Location: {{location}}
+    - Project Title: "${context.meta_data.title}"
+    - Style: "${context.config.tone_style}"
+    - Characters: ${JSON.stringify(context.database.characters.map(c => c.name))}
+    - Location: ${context.database.locations.find(l => l.id === scene.location_ref_id)?.name || "Unknown"}
     
     SCENE TO VISUALIZE:
-    - Slugline: {{slugline}}
-    - Goal: {{narrative_goal}}
-    - Duration: {{duration}} seconds
+    - Slugline: ${scene.slugline}
+    - Goal: ${scene.narrative_goal}
+    - Duration: ${scene.estimated_duration_sec} seconds
 
     INSTRUCTIONS:
     1. Break this scene into a sequence of shots.
-    2. **CRITICAL**: The sum of shot durations MUST equal {{duration}}s.
+    2. **CRITICAL**: The sum of shot durations MUST equal ${scene.estimated_duration_sec}s.
     3. For each shot:
        - \`final_image_prompt\`: Detailed static visual description.
        - \`video_motion_prompt\`: Camera movement and action for AI video.
@@ -373,87 +373,32 @@ const generateSceneShots = async (
     [
       {
         "shot_index": 1,
-        "id": "shot_{{sceneId}}_01",
-        "duration_sec": 3,
-        "composition": { "shot_type": "Wide", "camera_movement": "Pan", "angle": "Eye Level" },
-        "content": { 
-          "ui_description": "string", 
-          "characters_in_shot": ["char_id"], 
-          "final_image_prompt": "string", 
-          "video_motion_prompt": "string" 
-        },
-        "audio": { "audio_context": "string", "is_voice_over": false },
-        "video_generation": { "status": "pending" }
+        "duration_sec": 4,
+        "composition": { "shot_type": "Wide", "camera_movement": "Static", "angle": "Eye Level" },
+        "content": { "ui_description": "...", "characters_in_shot": [], "final_image_prompt": "...", "video_motion_prompt": "..." },
+        "audio": { "audio_context": "...", "is_voice_over": false }
       }
     ]
   `;
 
-  let prompt = template
-    .replace(/{{title}}/g, context.meta_data.title)
-    .replace(/{{style}}/g, context.global_assets.art_style_prompt)
-    .replace('{{characters}}', JSON.stringify(context.database.characters.map(c => ({ id: c.id, name: c.name, desc: c.visual_seed.description }))))
-    .replace('{{location}}', JSON.stringify(context.database.locations.find(l => l.id === scene.location_ref_id)))
-    .replace(/{{slugline}}/g, scene.slugline)
-    .replace(/{{narrative_goal}}/g, scene.narrative_goal)
-    .replace(/{{duration}}/g, scene.estimated_duration_sec.toString())
-    .replace(/{{sceneId}}/g, scene.id);
-
-  // INTERCEPT FOR REVIEW
-  prompt = await checkReviewMode(prompt, `Generate Shots (Scene ${scene.id})`);
-
-  const modelName = "gemini-2.0-flash-exp";
-  const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "application/json" } });
-
-  logDebug('req', 'Generate Shots', { sceneId: scene.id }, { model: modelName, dynamicPrompt: template, finalPrompt: prompt });
-
-  const result = await model.generateContent(prompt);
-  const text = result.response.text();
-  trackUsage(modelName, prompt.length / 4, text.length / 4);
-  return JSON.parse(text);
-};
-
-// --- ORCHESTRATOR ---
-export const analyzeStoryConcept = async (
-  idea: string,
-  settings: { tone: string; targetAudience: string; language: string; duration: number; videoType: string; visualStyle: string }
-): Promise<import("../types").ProjectBackbone> => {
-  if (!apiKey || apiKey === "MISSING_KEY") throw new Error("API Key is missing.");
-
   try {
-    // 1. Generate Skeleton
-    logDebug('info', 'Agentic Workflow', { step: '1. Generating Skeleton' });
-    const skeleton = await generateStorySkeleton(idea, settings);
+    // INTERCEPT FOR REVIEW
+    const finalPrompt = await checkReviewMode(template, `Generate Shots: ${scene.slugline}`);
 
-    // 2. Generate Shots for each scene (Parallel)
-    // logDebug('info', 'Agentic Workflow', { step: '2. Generating Shots', sceneCount: skeleton.database.scenes.length });
+    const modelName = "gemini-2.0-flash-exp";
+    const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "application/json" } });
 
-    // const scenePromises = skeleton.database.scenes.map(async (scene) => {
-    //   try {
-    //     const shots = await generateSceneShots(scene, skeleton);
-    //     return { ...scene, shots };
-    //   } catch (err) {
-    //     console.error(`Failed to generate shots for scene ${scene.id}`, err);
-    //     return scene; // Return scene without shots if failed, to avoid crashing entire flow
-    //   }
-    // });
+    const result = await model.generateContent(finalPrompt);
+    const text = result.response.text();
+    const shots = JSON.parse(text);
 
-    // const fullyPopulatedScenes = await Promise.all(scenePromises);
+    trackUsage(modelName, finalPrompt.length / 4, text.length / 4);
 
-    // 3. Assemble Final Result
-    const finalProject = {
-      ...skeleton,
-      database: {
-        ...skeleton.database,
-        // scenes: fullyPopulatedScenes
-        scenes: skeleton.database.scenes // Return scenes without shots
-      }
-    };
+    return Array.isArray(shots) ? shots.map((s: any) => ({ ...s, id: crypto.randomUUID() })) : [];
 
-    return finalProject;
-
-  } catch (error: any) {
-    console.error("Story Analysis Failed:", error);
-    throw new Error(`Failed to analyze story: ${error.message || error}`);
+  } catch (error) {
+    console.error(`Failed to generate shots for scene ${scene.id}`, error);
+    return [];
   }
 };
 
@@ -501,9 +446,9 @@ export const populateScriptAudio = async (
     Task: Write precise dialogue and audio cues for an existing visual storyboard.
     
     INPUT CONTEXT:
-    - Title: "{{title}}"
-    - Intent: "{{intent}}"
-    - Tone: "{{tone}}"
+    - Title: "${project.meta_data.title}"
+    - Intent: "${project.meta_data.user_intent}"
+    - Tone: "${project.config.tone_style}"
     - Language: "{{language}}"
     
     CHARACTERS:
@@ -535,9 +480,6 @@ export const populateScriptAudio = async (
     `;
 
     let prompt = template
-      .replace(/{{title}}/g, project.meta_data.title)
-      .replace(/{{intent}}/g, project.meta_data.user_intent)
-      .replace(/{{tone}}/g, project.config.tone_style)
       .replace(/{{language}}/g, project.config.primary_language)
       .replace('{{characters}}', JSON.stringify(characterContext, null, 2))
       .replace('{{visualStoryboard}}', JSON.stringify(visualContext, null, 2));
@@ -553,7 +495,9 @@ export const populateScriptAudio = async (
       },
     });
 
-    logDebug('req', 'Populate Script Audio', { projectTitle: project.meta_data.title }, { model: modelName, dynamicPrompt: template, finalPrompt: prompt });
+    logDebug('req', 'Populate Script Audio', {
+      projectTitle: project.meta_data.title
+    }, { model: modelName, dynamicPrompt: template, finalPrompt: prompt });
 
     const result = await model.generateContent(prompt);
     const response = result.response;
@@ -636,30 +580,30 @@ export const generateScript = async (
 
     // NEW STRICT SYSTEM PROMPT (Hierarchy & Reusability Rules)
     const template = `
-      Role: Expert Director & Production Asset Manager.
-      Task: Create a VISUAL STORYBOARD (Screenplay) that perfectly matches the provided AUDIO SCRIPT.
+  Role: Expert Director & Production Asset Manager.
+      Task: Create a VISUAL STORYBOARD(Screenplay) that perfectly matches the provided AUDIO SCRIPT.
       
       INPUT CONTEXT:
       - Concept: "{{idea}}"
-      - Total Duration: {{totalDuration}}s
-      - Pacing: {{pacing}}
-      - Language: {{language}}
+    - Total Duration: { { totalDuration } } s
+      - Pacing: { { pacing } }
+  - Language: { { language } }
       
-      AUDIO SCRIPT (SOURCE OF TRUTH):
-      {{audioScriptText}}
+      AUDIO SCRIPT(SOURCE OF TRUTH):
+  { { audioScriptText } }
 
-      INSTRUCTIONS:
-      1. **Synchronize Visuals**: You must create visual shots that correspond to the audio script. 
-         - A single dialogue line might need 1 shot, or multiple shots (e.g. cutting between characters).
+  INSTRUCTIONS:
+  1. ** Synchronize Visuals **: You must create visual shots that correspond to the audio script. 
+         - A single dialogue line might need 1 shot, or multiple shots(e.g.cutting between characters).
          - Ensure the total duration of your shots matches the audio script duration.
-      2. **Visual Dynamism**:
-         {{pacingInstruction}}
+      2. ** Visual Dynamism **:
+  { { pacingInstruction } }
       
-      PHASE 1: WRITE THE SCRIPT (Sequences & Shots)
-      - Group shots into SEQUENCES based on location/time.
+      PHASE 1: WRITE THE SCRIPT(Sequences & Shots)
+    - Group shots into SEQUENCES based on location / time.
       - Every shot MUST have a 'duration'.
-      - **MODULAR ACTION DATA**:
-        - \`baseEnvironment\`: Describe ONLY the static environment/background (e.g., "A dark, misty forest with ancient trees").
+      - ** MODULAR ACTION DATA **:
+  - \`baseEnvironment\`: Describe ONLY the static environment/background (e.g., "A dark, misty forest with ancient trees").
         - \`characterActions\`: List of objects { castId, action }. For EACH character in the shot, describe their specific action.
         - \`itemStates\`: List of objects { itemId, state }. For EACH item in the shot, describe its state/position.
       
@@ -793,6 +737,159 @@ export const generateScript = async (
   }
 };
 
+// --- 2.5 Generate Screenplay (Step 3) ---
+// --- 2.5 Generate Screenplay (Step 3) ---
+export const generateScreenplay = async (
+  project: import("../types").ProjectBackbone
+): Promise<import("../types").ProjectBackbone> => {
+  try {
+    const { database, meta_data, config } = project;
+    const scenes = database.scenes;
+
+    logDebug('info', 'Agentic Workflow', { step: '3. Generating Screenplay', sceneCount: scenes.length });
+
+    // SEQUENTIAL GENERATION LOGIC
+    const updatedScenes: import("../types").SceneTemplate[] = [];
+    let previousSceneContext = "Start of the movie.";
+
+    for (let i = 0; i < scenes.length; i++) {
+      const scene = scenes[i];
+
+      // If script content already exists, keep it but update context for next scene
+      if (scene.script_content && scene.script_content.lines && scene.script_content.lines.length > 0) {
+        updatedScenes.push(scene);
+        previousSceneContext = `Previous Scene (${scene.slugline}): Ended with ${scene.script_content.lines.slice(-3).map(l => l.content).join(' ')}`;
+        continue;
+      }
+
+      const template = `
+        Role: Professional Screenwriter.
+        Task: Write the Screenplay Content for Scene {{sceneNumber}} of {{totalScenes}}.
+        
+        PROJECT CONTEXT:
+        Title: {{title}}
+        Tone: {{tone}}
+        Intent: {{intent}}
+        Language: {{language}}
+        
+        PREVIOUS SCENE CONTEXT:
+        {{previousSceneContext}}
+        
+        CURRENT SCENE CONTEXT:
+        Slugline: {{slugline}}
+        Goal: {{goal}}
+        Estimated Duration: {{duration}} seconds
+        Characters in scene: {{characters}}
+        
+        INSTRUCTIONS:
+        1. Write the script in a standard screenplay format (Slugline -> Action -> Dialogue).
+        2. Ensure the scene flows logically from the previous one.
+        3. Match the estimated duration (approx 1 page per minute, so {{duration}}s is about {{durationPercentage}}% of a page).
+        4. Use a mix of Action, Dialogue, and Parentheticals.
+        5. **IMPORTANT**: Write a detailed scene with at least 7-10 lines of content. Don't be too brief.
+        
+        OUTPUT JSON SCHEMA:
+        {
+          "lines": [
+            { 
+              "type": "slugline" | "action" | "dialogue" | "parenthetical" | "transition", 
+              "content": "Text content", 
+              "speaker": "CHARACTER NAME (only for dialogue)", 
+              "parenthetical": "(optional emotion)"
+            }
+          ]
+        }
+      `;
+
+      const prompt = `
+        Role: Professional Screenwriter.
+        Task: Write the Screenplay Content for Scene ${i + 1} of ${scenes.length}.
+        
+        PROJECT CONTEXT:
+        Title: ${meta_data.title}
+        Tone: ${config.tone_style}
+        Intent: ${meta_data.user_intent}
+        Language: ${config.primary_language}
+        
+        PREVIOUS SCENE CONTEXT:
+        ${previousSceneContext}
+        
+        CURRENT SCENE CONTEXT:
+        Slugline: ${scene.slugline}
+        Goal: ${scene.narrative_goal}
+        Estimated Duration: ${scene.estimated_duration_sec} seconds
+        Characters in scene: ${database.characters.map(c => `${c.name} (${c.role})`).join(', ')}
+        
+        INSTRUCTIONS:
+        1. Write the script in a standard screenplay format (Slugline -> Action -> Dialogue).
+        2. Ensure the scene flows logically from the previous one.
+        3. Match the estimated duration (approx 1 page per minute, so ${scene.estimated_duration_sec}s is about ${Math.ceil(scene.estimated_duration_sec / 60 * 100)}% of a page).
+        4. Use a mix of Action, Dialogue, and Parentheticals.
+        5. **IMPORTANT**: Write a detailed scene with at least 7-10 lines of content. Don't be too brief.
+        
+        OUTPUT JSON SCHEMA:
+        {
+          "lines": [
+            { 
+              "type": "slugline" | "action" | "dialogue" | "parenthetical" | "transition", 
+              "content": "Text content", 
+              "speaker": "CHARACTER NAME (only for dialogue)", 
+              "parenthetical": "(optional emotion)"
+            }
+          ]
+        }
+      `;
+
+      try {
+        // INTERCEPT FOR REVIEW
+        const finalPrompt = await checkReviewMode(prompt, `Generate Screenplay: ${scene.slugline}`);
+
+        const modelName = "gemini-2.0-flash-exp";
+        const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "application/json" } });
+
+        logDebug('req', `Generate Screenplay: ${scene.slugline}`, { sceneId: scene.id }, { model: modelName, dynamicPrompt: template, finalPrompt });
+
+        const result = await model.generateContent(finalPrompt);
+        const text = result.response.text();
+        const content = JSON.parse(text);
+
+        logDebug('res', `Generate Screenplay: ${scene.slugline}`, { content }); // Log parsed object
+
+        trackUsage(modelName, finalPrompt.length / 4, text.length / 4);
+
+        const newScene = {
+          ...scene,
+          script_content: {
+            lines: Array.isArray(content.lines) ? content.lines.map((l: any) => ({ ...l, id: crypto.randomUUID() })) : []
+          }
+        };
+
+        updatedScenes.push(newScene);
+
+        // Update context for next iteration
+        const lastLines = newScene.script_content.lines.slice(-3).map(l => l.content).join(' ');
+        previousSceneContext = `Previous Scene (${scene.slugline}): Ended with ${lastLines}`;
+
+      } catch (err) {
+        console.error(`Failed to generate screenplay for scene ${scene.id}`, err);
+        updatedScenes.push(scene); // Keep original on error
+      }
+    }
+
+    return {
+      ...project,
+      database: {
+        ...database,
+        scenes: updatedScenes
+      }
+    };
+
+  } catch (error) {
+    logDebug('error', 'Generate Screenplay Failed', error);
+    throw error;
+  }
+};
+
 // --- 2. Extract Assets (Deprecated/Unused logic now that script handles it) ---
 export const extractAssets = async (script: Scene[]): Promise<{ assets: Asset[], sceneMappings: any }> => {
   return { assets: [], sceneMappings: {} };
@@ -816,7 +913,7 @@ export const generateImage = async (
 
     let apiPrompt = cleanPrompt;
     if (aspectRatio) {
-      apiPrompt += ` --aspect-ratio ${aspectRatio}`;
+      apiPrompt += ` --aspect - ratio ${aspectRatio} `;
     }
 
     const model = genAI.getGenerativeModel({ model: modelName });
@@ -904,16 +1001,16 @@ export const analyzeAssetChanges = async (
   // Check characters
   current.characters.forEach(c => {
     const orig = original.characters.find(o => o.id === c.id);
-    if (!orig) changes.push(`New character added: ${c.name}`);
-    else if (orig.name !== c.name) changes.push(`Character renamed: ${orig.name} -> ${c.name}`);
+    if (!orig) changes.push(`New character added: ${c.name} `);
+    else if (orig.name !== c.name) changes.push(`Character renamed: ${orig.name} -> ${c.name} `);
     else if (orig.visual_seed.description !== c.visual_seed.description) changes.push(`Character ${c.name} description modified`);
   });
 
   // Check locations
   current.locations.forEach(l => {
     const orig = original.locations.find(o => o.id === l.id);
-    if (!orig) changes.push(`New location added: ${l.name}`);
-    else if (orig.name !== l.name) changes.push(`Location renamed: ${orig.name} -> ${l.name}`);
+    if (!orig) changes.push(`New location added: ${l.name} `);
+    else if (orig.name !== l.name) changes.push(`Location renamed: ${orig.name} -> ${l.name} `);
     else if (orig.environment_prompt !== l.environment_prompt) changes.push(`Location ${l.name} prompt modified`);
   });
 
@@ -943,19 +1040,48 @@ export const regenerateSequencer = async (
 };
 
 // --- 7. Generate Multimodal Image ---
-export const generateMultimodalImage = async (prompt: string, imageUris: string[]): Promise<string> => {
+export const generateMultimodalImage = async (prompt: string, images: any[], aspectRatio?: string): Promise<string> => {
   console.warn("generateMultimodalImage not implemented");
   return "";
 };
 
 // --- 8. Generate Plan Video ---
-export const generatePlanVideo = async (prompt: string, imageUri?: string, duration: number = 5): Promise<string> => {
+export const generatePlanVideo = async (imageUri: string, prompt: string, aspectRatio: string, duration: number = 5): Promise<{ localUri: string, remoteUri: string }> => {
   console.warn("generatePlanVideo not implemented");
-  return "";
+  return { localUri: "", remoteUri: "" };
 };
 
 // --- 9. Extend Video ---
-export const extendVideo = async (videoUri: string, prompt: string): Promise<string> => {
+export const extendVideo = async (videoUri: string, prompt: string, aspectRatio: string): Promise<{ localUri: string, remoteUri: string }> => {
   console.warn("extendVideo not implemented");
+  return { localUri: "", remoteUri: "" };
+};
+
+// --- 10. Generate Refinement Questions ---
+export const generateRefinementQuestions = async (
+  script: import("../types").Scene[],
+  stylePrompt: string
+): Promise<import("../types").RefineQuestion[]> => {
+  console.warn("generateRefinementQuestions not implemented");
+  return [];
+};
+
+// --- 11. Generate Video (Wrapper) ---
+export const generateVideo = async (imageUri: string, prompt: string, aspectRatio: string): Promise<string> => {
+  const result = await generatePlanVideo(imageUri, prompt, aspectRatio);
+  return result.localUri || result.remoteUri || "";
+};
+
+// --- 13. Generate Bridge Scene ---
+export const generateBridgeScene = async (sceneId: string, prompt: string): Promise<string> => {
+  console.warn("generateBridgeScene not implemented");
   return "";
 };
+
+// --- 14. Outpaint Image ---
+export const outpaintImage = async (imageUri: string, prompt: string, direction: string): Promise<string> => {
+  console.warn("outpaintImage not implemented");
+  return "";
+};
+
+

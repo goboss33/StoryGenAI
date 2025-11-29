@@ -3,7 +3,7 @@ import { StoryState, ProjectBackbone } from './types';
 import Step1Idea from './components/Step1Idea';
 
 import Step2Analysis from './components/Step2Analysis';
-import Step1BisDialogue from './components/Step1BisDialogue';
+import Step3Screenplay from './components/Step3Screenplay';
 import Step2Script from './components/Step2Script';
 import DebugConsole from './components/DebugConsole';
 import { Steps } from './components/ui/Steps';
@@ -597,19 +597,11 @@ const App: React.FC = () => {
               )}
 
               {state.step === 2 && (
-                <Step1BisDialogue
+                <Step3Screenplay
                   project={state.project}
-                  idea={state.idea}
-                  totalDuration={state.totalDuration}
-                  pacing={state.pacing}
-                  language={state.language}
-                  tone={state.tone}
-                  targetAudience={state.targetAudience}
-                  audioScript={state.audioScript}
                   onUpdate={updateState}
                   onBack={prevStep}
                   onNext={nextStep}
-                  isNextStepReady={!!state.script && state.script.length > 0}
                 />
               )}
 

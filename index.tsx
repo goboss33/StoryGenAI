@@ -39,6 +39,7 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
             );
         }
 
+        // @ts-ignore
         return this.props.children;
     }
 }

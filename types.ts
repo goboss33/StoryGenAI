@@ -277,6 +277,15 @@ export interface ShotTemplate {
   };
 }
 
+export interface ScriptLine {
+  id: string;
+  type: 'action' | 'dialogue' | 'parenthetical' | 'transition' | 'slugline';
+  content: string;
+  speaker?: string;
+  parenthetical?: string;
+  metadata?: any;
+}
+
 export interface SceneTemplate {
   scene_index: number;
   id: string;
@@ -285,6 +294,9 @@ export interface SceneTemplate {
   narrative_goal: string;
   estimated_duration_sec: number; // Total duration of the scene
   estimated_shot_count?: number; // Estimated number of shots
+  script_content?: {
+    lines: ScriptLine[];
+  };
   shots: ShotTemplate[];
 }
 
