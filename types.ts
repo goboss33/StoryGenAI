@@ -284,6 +284,7 @@ export interface SceneTemplate {
   location_ref_id: string;
   narrative_goal: string;
   estimated_duration_sec: number; // Total duration of the scene
+  estimated_shot_count?: number; // Estimated number of shots
   shots: ShotTemplate[];
 }
 

@@ -308,7 +308,7 @@ const Step2Analysis: React.FC<Props> = ({
                                                 ⏱️ {scene.estimated_duration_sec}s
                                             </span>
                                             <span className="bg-slate-100 px-2 py-1 rounded font-medium text-slate-600">
-                                                🎬 {scene.shots?.length || 0} plans
+                                                🎬 {scene.shots?.length > 0 ? `${scene.shots.length} plans` : `${scene.estimated_shot_count || '?'} plans`}
                                             </span>
                                         </div>
                                     </div>

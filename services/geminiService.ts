@@ -311,7 +311,7 @@ const generateStorySkeleton = async (
         "locations": [{ "id": "loc_01", "name": "string", "environment_prompt": "string", "interior_exterior": "INT" }],
         "scenes": [{ 
           "scene_index": 1, "id": "sc_01", "slugline": "string", "location_ref_id": "string", "narrative_goal": "string", 
-          "estimated_duration_sec": 10, "shots": [] 
+          "estimated_duration_sec": 10, "estimated_shot_count": 3, "shots": [] 
         }]
       },
       "final_render": { "total_duration_sec": {{duration}} }
@@ -425,26 +425,27 @@ export const analyzeStoryConcept = async (
     const skeleton = await generateStorySkeleton(idea, settings);
 
     // 2. Generate Shots for each scene (Parallel)
-    logDebug('info', 'Agentic Workflow', { step: '2. Generating Shots', sceneCount: skeleton.database.scenes.length });
+    // logDebug('info', 'Agentic Workflow', { step: '2. Generating Shots', sceneCount: skeleton.database.scenes.length });
 
-    const scenePromises = skeleton.database.scenes.map(async (scene) => {
-      try {
-        const shots = await generateSceneShots(scene, skeleton);
-        return { ...scene, shots };
-      } catch (err) {
-        console.error(`Failed to generate shots for scene ${scene.id}`, err);
-        return scene; // Return scene without shots if failed, to avoid crashing entire flow
-      }
-    });
+    // const scenePromises = skeleton.database.scenes.map(async (scene) => {
+    //   try {
+    //     const shots = await generateSceneShots(scene, skeleton);
+    //     return { ...scene, shots };
+    //   } catch (err) {
+    //     console.error(`Failed to generate shots for scene ${scene.id}`, err);
+    //     return scene; // Return scene without shots if failed, to avoid crashing entire flow
+    //   }
+    // });
 
-    const fullyPopulatedScenes = await Promise.all(scenePromises);
+    // const fullyPopulatedScenes = await Promise.all(scenePromises);
 
     // 3. Assemble Final Result
     const finalProject = {
       ...skeleton,
       database: {
         ...skeleton.database,
-        scenes: fullyPopulatedScenes
+        // scenes: fullyPopulatedScenes
+        scenes: skeleton.database.scenes // Return scenes without shots
       }
     };
 
@@ -934,16 +935,11 @@ export const analyzeAssetChanges = async (
 // --- 6. Regenerate Sequencer ---
 export const regenerateSequencer = async (
   database: import("../types").ProjectBackbone['database'],
-  analysis: import("../types").AssetChangeAnalysis
+  metaData: import("../types").ProjectBackbone['meta_data'],
+  answers?: Record<string, string>
 ): Promise<import("../types").ProjectBackbone['database']> => {
   console.warn("regenerateSequencer: Not fully implemented yet. Returning current database.");
   return database;
-};
-
-// --- 7. Generate Multimodal Image ---
-export const generateMultimodalImage = async (prompt: string, imageUris: string[]): Promise<string> => {
-  console.warn("generateMultimodalImage not implemented");
-  return "";
 };
 
 // --- 8. Generate Plan Video ---
