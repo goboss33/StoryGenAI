@@ -269,6 +269,7 @@ const Step1Idea: React.FC<Props> = ({
                                     )}
                                 </div>
                             </div>
+
                         </div>
                     </section>
 

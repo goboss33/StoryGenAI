@@ -311,7 +311,7 @@ export const analyzeStoryConcept = async (
         "locations": [{ "id": "loc_01", "name": "string", "environment_prompt": "string", "interior_exterior": "INT" }],
         "scenes": [{ 
           "scene_index": 1, "id": "sc_01", "slugline": "string", "location_ref_id": "string", "narrative_goal": "string", 
-          "estimated_duration_sec": 10, "estimated_shot_count": 3, "shots": [] 
+          "estimated_duration_sec": 10, "shots": [] 
         }]
       },
       "final_render": { "total_duration_sec": {{duration}} }
