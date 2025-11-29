@@ -177,6 +177,20 @@ export const TARGET_AUDIENCES = [
   "Tout public", "Enfants", "Ados", "Jeunes Adultes", "Professionnels", "Seniors", "Passionnés de Tech", "Voyageurs"
 ];
 
+// --- AGENT SYSTEM TYPES ---
+export enum AgentRole {
+  DIRECTOR = 'Director',
+  SCREENWRITER = 'Screenwriter'
+}
+
+export interface AgentMessage {
+  id: string;
+  role: 'user' | 'model' | 'system';
+  agentRole: AgentRole;
+  content: string;
+  timestamp: number;
+}
+
 // --- ADVANCED PROMPT ENGINEERING STRUCTURES ---
 
 export interface ScreenplayCharacter {

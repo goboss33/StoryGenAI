@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { UsageStats, PendingRequestData } from '../services/geminiService';
+import { UsageStats, PendingRequestData, subscribeToAgentMessages, getAgentHistory } from '../services/geminiService';
+import { AgentRole, AgentMessage } from '../types';
 
 interface LogEntry {
     id: string;
@@ -212,6 +213,31 @@ const LogItem: React.FC<{ log: LogEntry }> = ({ log }) => {
     );
 };
 
+const AgentMessageItem: React.FC<{ message: AgentMessage }> = ({ message }) => {
+    const isUser = message.role === 'user';
+    const isSystem = message.role === 'system';
+
+    return (
+        <div className={`flex flex-col gap-1 p-2 rounded border ${isSystem ? 'bg-slate-900 border-slate-700' :
+            isUser ? 'bg-slate-800/50 border-slate-700 ml-8' :
+                'bg-indigo-900/10 border-indigo-900/30 mr-8'
+            }`}>
+            <div className="flex items-center gap-2 mb-1">
+                <span className={`text-[9px] font-bold uppercase px-1.5 rounded ${isSystem ? 'bg-slate-700 text-slate-300' :
+                    isUser ? 'bg-emerald-900 text-emerald-300' :
+                        'bg-indigo-900 text-indigo-300'
+                    }`}>
+                    {message.role}
+                </span>
+                <span className="text-[9px] text-slate-500">{new Date(message.timestamp).toLocaleTimeString()}</span>
+            </div>
+            <div className="text-xs font-mono whitespace-pre-wrap text-slate-300">
+                {message.content}
+            </div>
+        </div>
+    );
+};
+
 const DebugConsole: React.FC<DebugConsoleProps> = ({
     logs,
     totalUsage,
@@ -230,6 +256,28 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
 }) => {
     const logEndRef = useRef<HTMLDivElement>(null);
     const [editedPrompt, setEditedPrompt] = useState("");
+    const [activeTab, setActiveTab] = useState<'SYSTEM' | AgentRole>('SYSTEM');
+    const [agentMessages, setAgentMessages] = useState<Record<AgentRole, AgentMessage[]>>({
+        [AgentRole.DIRECTOR]: [],
+        [AgentRole.SCREENWRITER]: []
+    });
+
+    // Subscribe to Agent Messages & Load History
+    useEffect(() => {
+        // Load initial history
+        setAgentMessages({
+            [AgentRole.DIRECTOR]: getAgentHistory(AgentRole.DIRECTOR),
+            [AgentRole.SCREENWRITER]: getAgentHistory(AgentRole.SCREENWRITER)
+        });
+
+        const unsubscribe = subscribeToAgentMessages((role, message) => {
+            setAgentMessages(prev => ({
+                ...prev,
+                [role]: [...(prev[role] || []), message]
+            }));
+        });
+        return unsubscribe;
+    }, []);
 
     // Sync edited prompt when new request arrives
     useEffect(() => {
@@ -243,7 +291,7 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
         if (isOpen && logEndRef.current) {
             logEndRef.current.scrollIntoView({ behavior: 'smooth' });
         }
-    }, [logs, isOpen]);
+    }, [logs, isOpen, activeTab, agentMessages]);
 
     if (!isOpen) return null;
 
@@ -267,7 +315,7 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
             )}
 
             {/* Header */}
-            <div className="bg-slate-950 px-6 py-3 border-b border-slate-800 flex justify-between items-center flex-shrink-0">
+            <div className="bg-slate-950 px-6 py-2 border-b border-slate-800 flex justify-between items-center flex-shrink-0">
                 <div className="flex items-center gap-3">
                     <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                     <span className="text-sm font-mono font-bold uppercase tracking-wider text-slate-300">GenAI Debug Console</span>
@@ -277,8 +325,8 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
                     <button
                         onClick={() => onToggleReviewMode(!isReviewMode)}
                         className={`flex items-center gap-2 px-3 py-1 rounded text-xs font-bold uppercase transition-colors border ${isReviewMode
-                                ? 'bg-amber-900/30 border-amber-700 text-amber-400 hover:bg-amber-900/50'
-                                : 'bg-slate-800 border-slate-700 text-slate-500 hover:text-slate-300'
+                            ? 'bg-amber-900/30 border-amber-700 text-amber-400 hover:bg-amber-900/50'
+                            : 'bg-slate-800 border-slate-700 text-slate-500 hover:text-slate-300'
                             }`}
                         title="Pause requests to review and edit prompts before sending"
                     >
@@ -327,14 +375,49 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
                 </div>
             </div>
 
+            {/* TAB BAR */}
+            <div className="bg-slate-900 px-6 pt-2 border-b border-slate-800 flex gap-1">
+                <button
+                    onClick={() => setActiveTab('SYSTEM')}
+                    className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors ${activeTab === 'SYSTEM' ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
+                >
+                    🖥️ System Logs
+                </button>
+                <button
+                    onClick={() => setActiveTab(AgentRole.DIRECTOR)}
+                    className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors ${activeTab === AgentRole.DIRECTOR ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
+                >
+                    🎬 Director
+                </button>
+                <button
+                    onClick={() => setActiveTab(AgentRole.SCREENWRITER)}
+                    className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors ${activeTab === AgentRole.SCREENWRITER ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
+                >
+                    ✍️ Screenwriter
+                </button>
+            </div>
+
             {/* Logs Area */}
-            <div className="flex-1 overflow-y-auto px-6 py-4 font-mono text-xs space-y-3 custom-scrollbar relative">
-                {logs.length === 0 && (
-                    <div className="text-slate-600 italic text-center mt-12">Waiting for API activity...</div>
+            <div className="flex-1 overflow-y-auto px-6 py-4 font-mono text-xs space-y-3 custom-scrollbar relative bg-slate-900">
+                {activeTab === 'SYSTEM' ? (
+                    <>
+                        {logs.length === 0 && (
+                            <div className="text-slate-600 italic text-center mt-12">Waiting for API activity...</div>
+                        )}
+                        {logs.map(log => (
+                            <LogItem key={log.id} log={log} />
+                        ))}
+                    </>
+                ) : (
+                    <>
+                        {agentMessages[activeTab as AgentRole]?.length === 0 && (
+                            <div className="text-slate-600 italic text-center mt-12">No history for this agent yet...</div>
+                        )}
+                        {agentMessages[activeTab as AgentRole]?.map(msg => (
+                            <AgentMessageItem key={msg.id} message={msg} />
+                        ))}
+                    </>
                 )}
-                {logs.map(log => (
-                    <LogItem key={log.id} log={log} />
-                ))}
                 <div ref={logEndRef}></div>
             </div>
 

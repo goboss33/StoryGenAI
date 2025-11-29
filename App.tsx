@@ -16,7 +16,9 @@ import {
   subscribeToPendingRequests,
   resolvePendingRequest,
   rejectPendingRequest,
-  PendingRequestData
+  PendingRequestData,
+  subscribeToAgentMessages,
+  injectAgentMessage
 } from './services/geminiService';
 
 interface LogEntry {
@@ -150,6 +152,10 @@ const App: React.FC = () => {
       } else if (type === 'REJECT_REQUEST') {
         // Received reject command (Main Window)
         rejectPendingRequest(payload.id);
+      } else if (type === 'AGENT_MESSAGE') {
+        // Received agent message (Debug Window)
+        const { role, message } = payload;
+        injectAgentMessage(role, message);
       }
     };
 
@@ -227,10 +233,19 @@ const App: React.FC = () => {
       broadcastChannelRef.current?.postMessage({ type: 'PENDING_REQUEST_UPDATE', payload: req });
     });
 
+    // Subscribe to Agent Messages (Main Window Only)
+    let unsubscribeAgents: (() => void) | undefined;
+    if (!isDebugWindow) {
+      unsubscribeAgents = subscribeToAgentMessages((role, message) => {
+        broadcastChannelRef.current?.postMessage({ type: 'AGENT_MESSAGE', payload: { role, message } });
+      });
+    }
+
     return () => {
       unsubscribeLogs();
       unsubscribeUsage();
       unsubscribePending();
+      if (unsubscribeAgents) unsubscribeAgents();
     };
   }, [isDebugWindow]);
 

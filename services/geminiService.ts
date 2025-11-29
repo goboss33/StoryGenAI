@@ -1,5 +1,328 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import { Scene, Asset, AssetType, Pacing, RefineQuestion, ProjectBackbone, AssetChangeAnalysis, SceneTemplate } from "../types";
+import { GoogleGenerativeAI, ChatSession } from "@google/generative-ai";
+import { Scene, Asset, AssetType, Pacing, RefineQuestion, ProjectBackbone, AssetChangeAnalysis, SceneTemplate, AgentRole, AgentMessage } from "../types";
+
+// ... (existing code)
+
+// --- AGENT MANAGER ---
+class AgentManager {
+  private static instance: AgentManager;
+  private agents: Map<AgentRole, ChatSession> = new Map();
+  private messageHistory: Map<AgentRole, AgentMessage[]> = new Map();
+  private listeners: ((role: AgentRole, message: AgentMessage) => void)[] = [];
+  public id: string = crypto.randomUUID().slice(0, 8); // Debug ID
+
+  private constructor() {
+    console.log(`[AgentManager] Created new instance: ${this.id}`);
+  }
+
+  public static getInstance(): AgentManager {
+    if (!AgentManager.instance) {
+      AgentManager.instance = new AgentManager();
+    }
+    return AgentManager.instance;
+  }
+
+  public getAgent(role: AgentRole, model: any, systemInstruction?: string): ChatSession {
+    if (!this.agents.has(role)) {
+      console.log(`[AgentManager ${this.id}] Creating new agent: ${role}`);
+      const session = model.startChat({
+        history: systemInstruction ? [
+          { role: "user", parts: [{ text: systemInstruction }] },
+          { role: "model", parts: [{ text: `I am the ${role}. I understand my role and instructions.` }] }
+        ] : []
+      });
+      this.agents.set(role, session);
+
+      // Notify listeners of system init
+      if (systemInstruction) {
+        const sysMsg: AgentMessage = {
+          id: crypto.randomUUID(),
+          role: 'system',
+          agentRole: role,
+          content: systemInstruction,
+          timestamp: Date.now()
+        };
+        this.addMessageToHistory(role, sysMsg);
+        this.notifyListeners(role, sysMsg);
+      }
+    }
+    return this.agents.get(role)!;
+  }
+
+  public subscribe(listener: (role: AgentRole, message: AgentMessage) => void) {
+    console.log(`[AgentManager ${this.id}] New subscriber added. Total listeners: ${this.listeners.length + 1}`);
+    this.listeners.push(listener);
+    return () => {
+      this.listeners = this.listeners.filter(l => l !== listener);
+      console.log(`[AgentManager ${this.id}] Subscriber removed. Total listeners: ${this.listeners.length}`);
+    };
+  }
+
+  public notifyListeners(role: AgentRole, message: AgentMessage) {
+    console.log(`[AgentManager ${this.id}] Notifying ${this.listeners.length} listeners of message from ${role}`);
+    this.listeners.forEach(l => l(role, message));
+  }
+
+  public injectMessage(role: AgentRole, message: AgentMessage) {
+    console.log(`[AgentManager ${this.id}] Injecting message for ${role}`);
+    this.addMessageToHistory(role, message);
+    this.notifyListeners(role, message);
+  }
+
+  private addMessageToHistory(role: AgentRole, message: AgentMessage) {
+    if (!this.messageHistory.has(role)) {
+      this.messageHistory.set(role, []);
+    }
+    this.messageHistory.get(role)!.push(message);
+  }
+
+  public getHistory(role: AgentRole): AgentMessage[] {
+    const history = this.messageHistory.get(role) || [];
+    console.log(`[AgentManager ${this.id}] getHistory for ${role}: ${history.length} messages`);
+    return history;
+  }
+
+  public async sendMessage(role: AgentRole, session: ChatSession, text: string): Promise<string> {
+    console.log(`[AgentManager ${this.id}] sendMessage for ${role}: "${text.slice(0, 50)}..."`);
+
+    // Log User Message
+    const userMsg: AgentMessage = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      agentRole: role,
+      content: text,
+      timestamp: Date.now()
+    };
+    this.addMessageToHistory(role, userMsg);
+    this.notifyListeners(role, userMsg);
+
+    const result = await session.sendMessage(text);
+    const responseText = result.response.text();
+
+    // Log Model Message
+    const modelMsg: AgentMessage = {
+      id: crypto.randomUUID(),
+      role: 'model',
+      agentRole: role,
+      content: responseText,
+      timestamp: Date.now()
+    };
+    this.addMessageToHistory(role, modelMsg);
+    this.notifyListeners(role, modelMsg);
+
+    return responseText;
+    return responseText;
+  }
+}
+
+export const subscribeToAgentMessages = (listener: (role: AgentRole, message: AgentMessage) => void) => {
+  return AgentManager.getInstance().subscribe(listener);
+};
+
+export const getAgentHistory = (role: AgentRole): AgentMessage[] => {
+  return AgentManager.getInstance().getHistory(role);
+};
+
+export const injectAgentMessage = (role: AgentRole, message: AgentMessage) => {
+  AgentManager.getInstance().injectMessage(role, message);
+};
+
+// --- AGENTIC WORKFLOW: STEP 1 - SKELETON GENERATION (DIRECTOR AGENT) ---
+export const analyzeStoryConcept = async (
+  idea: string,
+  settings: { tone: string; targetAudience: string; language: string; duration: number; videoType: string; visualStyle: string }
+): Promise<import("../types").ProjectBackbone> => {
+  const systemInstruction = `
+    Role: Creative Director & Showrunner.
+    Task: You are responsible for the initial vision of the video project.
+    
+    Responsibilities:
+    1. Analyze the user's raw idea.
+    2. Define the "Project Backbone": Structure, Characters, Locations, Scene List.
+    3. Ensure the tone and style are consistent.
+    4. Output strictly valid JSON when requested.
+  `;
+
+  const modelName = "gemini-2.0-flash-exp";
+  const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "application/json" } });
+
+  // Get or Create DIRECTOR Agent
+  const agentManager = AgentManager.getInstance();
+  const directorSession = agentManager.getAgent(AgentRole.DIRECTOR, model, systemInstruction);
+
+  const prompt = `
+    INPUT:
+    - Idea: "${idea}"
+    - Type: ${settings.videoType}
+    - Visual Style: ${settings.visualStyle}
+    - Tone: ${settings.tone}
+    - Audience: ${settings.targetAudience}
+    - Language: ${settings.language}
+    - Total Duration: ${settings.duration}s
+
+    INSTRUCTIONS:
+    1. **Characters**: Create detailed profiles (Name, Role, Visual Description).
+    2. **Locations**: Create detailed profiles (Name, Environment Prompt).
+    3. **Scene List**: Break the story into logical scenes.
+       - Assign an \`estimated_duration_sec\` to each scene.
+       - **CRITICAL**: The sum of scene durations MUST equal ${settings.duration}s (+/- 5s).
+       - **DO NOT generate shots yet.** Leave the "shots" array empty [].
+
+    OUTPUT JSON SCHEMA:
+    {
+      "project_id": "uuid",
+      "meta_data": { "title": "string", "user_intent": "${idea}", "created_at": "${new Date().toISOString()}" },
+      "config": { "aspect_ratio": "16:9", "resolution": "1080p", "target_fps": 24, "primary_language": "${settings.language}", "target_audience": "${settings.targetAudience}", "tone_style": "${settings.tone}" },
+      "global_assets": { "art_style_prompt": "string", "negative_prompt": "string", "music_theme_id": "string" },
+      "database": {
+        "characters": [{ "id": "char_01", "name": "string", "role": "string", "visual_seed": { "description": "string" } }],
+        "locations": [{ "id": "loc_01", "name": "string", "environment_prompt": "string", "interior_exterior": "INT" }],
+        "scenes": [{ 
+          "scene_index": 1, "id": "sc_01", "slugline": "string", "location_ref_id": "string", "narrative_goal": "string", 
+          "estimated_duration_sec": 10, "shots": [] 
+        }]
+      },
+      "final_render": { "total_duration_sec": ${settings.duration} }
+    }
+  `;
+
+  // INTERCEPT FOR REVIEW
+  const finalPrompt = await checkReviewMode(prompt, 'Director: Generate Skeleton');
+
+  logDebug('req', 'Director Agent: Generate Skeleton', { idea }, { model: modelName, finalPrompt });
+
+  // Use AgentManager to send message (handles logging)
+  const text = await agentManager.sendMessage(AgentRole.DIRECTOR, directorSession, finalPrompt);
+
+  trackUsage(modelName, finalPrompt.length / 4, text.length / 4);
+  return JSON.parse(text);
+};
+
+// ... (rest of file)
+
+// --- 2.5 Generate Screenplay (Step 3) (SCREENWRITER AGENT) ---
+export const generateScreenplay = async (
+  project: import("../types").ProjectBackbone
+): Promise<import("../types").ProjectBackbone> => {
+  try {
+    const { database, meta_data, config } = project;
+    const scenes = database.scenes;
+
+    logDebug('info', 'Agentic Workflow', { step: '3. Generating Screenplay (Screenwriter Agent)', sceneCount: scenes.length });
+
+    const modelName = "gemini-2.0-flash-exp";
+    const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "application/json" } });
+
+    // 1. Initialize Screenwriter Agent with Project Bible
+    const projectBible = `
+      Role: Professional Screenwriter.
+      Task: You are writing a screenplay for a video project. You will receive scene details one by one.
+      
+      PROJECT CONTEXT (THE BIBLE):
+      Title: ${meta_data.title}
+      Tone: ${config.tone_style}
+      Intent: ${meta_data.user_intent}
+      Language: ${config.primary_language}
+      
+      CHARACTERS:
+      ${database.characters.map(c => `- ${c.name} (${c.role}): ${c.visual_seed.description}`).join('\n')}
+      
+      LOCATIONS:
+      ${database.locations.map(l => `- ${l.name} (${l.interior_exterior}): ${l.environment_prompt}`).join('\n')}
+
+      INSTRUCTIONS:
+      1. Maintain consistency with previous scenes (you have full memory).
+      2. Write in standard screenplay format.
+      3. Output JSON only.
+    `;
+
+    // Get or Create SCREENWRITER Agent
+    const agentManager = AgentManager.getInstance();
+    // Note: We might want to reset the screenwriter if it's a new generation run, but for now we keep persistence.
+    // Ideally, we check if the bible changed. For simplicity, we assume the agent persists.
+    // If we wanted to "reset" the memory for a new project, we'd clear the agent from the map.
+    const chatSession = agentManager.getAgent(AgentRole.SCREENWRITER, model, projectBible);
+
+    const updatedScenes: import("../types").SceneTemplate[] = [];
+
+    for (let i = 0; i < scenes.length; i++) {
+      const scene = scenes[i];
+
+      // If script content already exists, inject it into history to maintain context
+      if (scene.script_content && scene.script_content.lines && scene.script_content.lines.length > 0) {
+        updatedScenes.push(scene);
+
+        // Manually inject into history via sendMessage (simulating memory)
+        await agentManager.sendMessage(AgentRole.SCREENWRITER, chatSession, `
+          [SYSTEM: Scene ${i + 1} was already written. Here is the content for your memory:]
+          Slugline: ${scene.slugline}
+          Content: ${JSON.stringify(scene.script_content)}
+        `);
+        continue;
+      }
+
+      const scenePrompt = `
+        WRITE SCENE ${i + 1} of ${scenes.length}:
+        
+        Slugline: ${scene.slugline}
+        Goal: ${scene.narrative_goal}
+        Estimated Duration: ${scene.estimated_duration_sec} seconds
+        
+        OUTPUT JSON SCHEMA:
+        {
+          "lines": [
+            { 
+              "type": "slugline" | "action" | "dialogue" | "parenthetical" | "transition", 
+              "content": "Text content", 
+              "speaker": "CHARACTER NAME (only for dialogue)", 
+              "parenthetical": "(optional emotion)"
+            }
+          ]
+        }
+      `;
+
+      try {
+        // INTERCEPT FOR REVIEW
+        const finalPrompt = await checkReviewMode(scenePrompt, `Screenwriter: Scene ${scene.slugline}`);
+
+        logDebug('req', `Screenwriter Agent: Scene ${scene.slugline}`, { sceneId: scene.id }, { model: modelName, dynamicPrompt: scenePrompt, finalPrompt });
+
+        // Use AgentManager to send message
+        const text = await agentManager.sendMessage(AgentRole.SCREENWRITER, chatSession, finalPrompt);
+        const content = JSON.parse(text);
+
+        logDebug('res', `Screenwriter Agent: Scene ${scene.slugline}`, { content });
+
+        trackUsage(modelName, finalPrompt.length / 4, text.length / 4);
+
+        const newScene = {
+          ...scene,
+          script_content: {
+            lines: Array.isArray(content.lines) ? content.lines.map((l: any) => ({ ...l, id: crypto.randomUUID() })) : []
+          }
+        };
+
+        updatedScenes.push(newScene);
+
+      } catch (error) {
+        console.error(`Failed to generate scene ${scene.slugline}`, error);
+        updatedScenes.push(scene); // Keep original if failed
+      }
+    }
+
+    return {
+      ...project,
+      database: {
+        ...database,
+        scenes: updatedScenes
+      }
+    };
+
+  } catch (error) {
+    logDebug('error', 'Generate Screenplay Failed', error);
+    throw error;
+  }
+};
 
 // Define SchemaType locally to avoid import errors with older SDK versions
 const SchemaType = {
@@ -275,71 +598,7 @@ const trackUsage = (model: string, inputTokens: number, outputTokens: number, sp
 };
 
 // --- AGENTIC WORKFLOW: STEP 1 - SKELETON GENERATION ---
-export const analyzeStoryConcept = async (
-  idea: string,
-  settings: { tone: string; targetAudience: string; language: string; duration: number; videoType: string; visualStyle: string }
-): Promise<import("../types").ProjectBackbone> => {
-  const template = `
-    Role: Showrunner & Lead Writer.
-    Task: Create the "Project Backbone" (Structure, Characters, Locations, Scene List) for a video project.
-    
-    INPUT:
-    - Idea: "{{idea}}"
-    - Type: {{videoType}}
-    - Visual Style: {{visualStyle}}
-    - Tone: {{tone}}
-    - Audience: {{targetAudience}}
-    - Language: {{language}}
-    - Total Duration: {{duration}}s
 
-    INSTRUCTIONS:
-    1. **Characters**: Create detailed profiles (Name, Role, Visual Description).
-    2. **Locations**: Create detailed profiles (Name, Environment Prompt).
-    3. **Scene List**: Break the story into logical scenes.
-       - Assign an \`estimated_duration_sec\` to each scene.
-       - **CRITICAL**: The sum of scene durations MUST equal {{duration}}s (+/- 5s).
-       - **DO NOT generate shots yet.** Leave the "shots" array empty [].
-
-    OUTPUT JSON:
-    {
-      "project_id": "uuid",
-      "meta_data": { "title": "string", "user_intent": "{{idea}}", "created_at": "${new Date().toISOString()}" },
-      "config": { "aspect_ratio": "16:9", "resolution": "1080p", "target_fps": 24, "primary_language": "{{language}}", "target_audience": "{{targetAudience}}", "tone_style": "{{tone}}" },
-      "global_assets": { "art_style_prompt": "string", "negative_prompt": "string", "music_theme_id": "string" },
-      "database": {
-        "characters": [{ "id": "char_01", "name": "string", "role": "string", "visual_seed": { "description": "string" } }],
-        "locations": [{ "id": "loc_01", "name": "string", "environment_prompt": "string", "interior_exterior": "INT" }],
-        "scenes": [{ 
-          "scene_index": 1, "id": "sc_01", "slugline": "string", "location_ref_id": "string", "narrative_goal": "string", 
-          "estimated_duration_sec": 10, "shots": [] 
-        }]
-      },
-      "final_render": { "total_duration_sec": {{duration}} }
-    }
-  `;
-
-  let prompt = template
-    .replace(/{{idea}}/g, idea)
-    .replace(/{{videoType}}/g, settings.videoType)
-    .replace(/{{visualStyle}}/g, settings.visualStyle)
-    .replace(/{{tone}}/g, settings.tone)
-    .replace(/{{targetAudience}}/g, settings.targetAudience)
-    .replace(/{{language}}/g, settings.language)
-    .replace(/{{duration}}/g, settings.duration.toString());
-
-  // INTERCEPT FOR REVIEW
-  prompt = await checkReviewMode(prompt, 'Generate Skeleton');
-
-  const modelName = "gemini-2.0-flash-exp";
-  const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "application/json" } });
-
-  logDebug('req', 'Generate Skeleton', { idea }, { model: modelName, dynamicPrompt: template, finalPrompt: prompt });
-
-  const result = await model.generateContent(prompt);
-  const text = result.response.text();
-  trackUsage(modelName, prompt.length / 4, text.length / 4);
-  return JSON.parse(text);
-};
 
 // --- AGENTIC WORKFLOW: STEP 2 - SHOT GENERATION ---
 const generateSceneShots = async (
@@ -738,133 +997,7 @@ export const generateScript = async (
 };
 
 // --- 2.5 Generate Screenplay (Step 3) ---
-export const generateScreenplay = async (
-  project: import("../types").ProjectBackbone
-): Promise<import("../types").ProjectBackbone> => {
-  try {
-    const { database, meta_data, config } = project;
-    const scenes = database.scenes;
 
-    logDebug('info', 'Agentic Workflow', { step: '3. Generating Screenplay (Chat Mode)', sceneCount: scenes.length });
-
-    // STATEFUL GENERATION LOGIC (CHAT)
-    const modelName = "gemini-2.0-flash-exp";
-    const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "application/json" } });
-
-    // 1. Initialize Chat with Project Bible
-    const projectBible = `
-      Role: Professional Screenwriter.
-      Task: You are writing a screenplay for a video project. You will receive scene details one by one.
-      
-      PROJECT CONTEXT (THE BIBLE):
-      Title: ${meta_data.title}
-      Tone: ${config.tone_style}
-      Intent: ${meta_data.user_intent}
-      Language: ${config.primary_language}
-      
-      CHARACTERS:
-      ${database.characters.map(c => `- ${c.name} (${c.role}): ${c.visual_seed.description}`).join('\n')}
-      
-      LOCATIONS:
-      ${database.locations.map(l => `- ${l.name} (${l.interior_exterior}): ${l.environment_prompt}`).join('\n')}
-
-      INSTRUCTIONS:
-      1. Maintain consistency with previous scenes (you have full memory).
-      2. Write in standard screenplay format.
-      3. Output JSON only.
-    `;
-
-    const chatSession = model.startChat({
-      history: [
-        {
-          role: "user",
-          parts: [{ text: projectBible }],
-        },
-        {
-          role: "model",
-          parts: [{ text: "Understood. I am ready to write the screenplay scene by scene, maintaining full context and consistency." }],
-        },
-      ],
-    });
-
-    const updatedScenes: import("../types").SceneTemplate[] = [];
-
-    for (let i = 0; i < scenes.length; i++) {
-      const scene = scenes[i];
-
-      // If script content already exists, inject it into history to maintain context
-      if (scene.script_content && scene.script_content.lines && scene.script_content.lines.length > 0) {
-        updatedScenes.push(scene);
-        await chatSession.sendMessage(`
-          [SYSTEM: Scene ${i + 1} was already written. Here is the content for your memory:]
-          Slugline: ${scene.slugline}
-          Content: ${JSON.stringify(scene.script_content)}
-        `);
-        continue;
-      }
-
-      const scenePrompt = `
-        WRITE SCENE ${i + 1} of ${scenes.length}:
-        
-        Slugline: ${scene.slugline}
-        Goal: ${scene.narrative_goal}
-        Estimated Duration: ${scene.estimated_duration_sec} seconds
-        
-        OUTPUT JSON SCHEMA:
-        {
-          "lines": [
-            { 
-              "type": "slugline" | "action" | "dialogue" | "parenthetical" | "transition", 
-              "content": "Text content", 
-              "speaker": "CHARACTER NAME (only for dialogue)", 
-              "parenthetical": "(optional emotion)"
-            }
-          ]
-        }
-      `;
-
-      try {
-        // INTERCEPT FOR REVIEW
-        const finalPrompt = await checkReviewMode(scenePrompt, `Generate Screenplay: ${scene.slugline}`);
-
-        logDebug('req', `Generate Screenplay (Chat): ${scene.slugline}`, { sceneId: scene.id }, { model: modelName, dynamicPrompt: scenePrompt, finalPrompt });
-
-        const result = await chatSession.sendMessage(finalPrompt);
-        const text = result.response.text();
-        const content = JSON.parse(text);
-
-        logDebug('res', `Generate Screenplay (Chat): ${scene.slugline}`, { content });
-
-        trackUsage(modelName, finalPrompt.length / 4, text.length / 4);
-
-        const newScene = {
-          ...scene,
-          script_content: {
-            lines: Array.isArray(content.lines) ? content.lines.map((l: any) => ({ ...l, id: crypto.randomUUID() })) : []
-          }
-        };
-
-        updatedScenes.push(newScene);
-
-      } catch (error) {
-        console.error(`Failed to generate scene ${scene.slugline}`, error);
-        updatedScenes.push(scene); // Keep original if failed
-      }
-    }
-
-    return {
-      ...project,
-      database: {
-        ...database,
-        scenes: updatedScenes
-      }
-    };
-
-  } catch (error) {
-    logDebug('error', 'Generate Screenplay Failed', error);
-    throw error;
-  }
-};
 
 // --- 2. Extract Assets (Deprecated/Unused logic now that script handles it) ---
 export const extractAssets = async (script: Scene[]): Promise<{ assets: Asset[], sceneMappings: any }> => {
