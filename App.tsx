@@ -5,8 +5,19 @@ import Step1Idea from './components/Step1Idea';
 import Step2Analysis from './components/Step2Analysis';
 import Step1BisDialogue from './components/Step1BisDialogue';
 import Step2Script from './components/Step2Script';
+import DebugConsole from './components/DebugConsole';
 import { Steps } from './components/ui/Steps';
-import { subscribeToDebugLog, subscribeToUsage, UsageStats, analyzeStoryConcept } from './services/geminiService';
+import {
+  subscribeToDebugLog,
+  subscribeToUsage,
+  UsageStats,
+  analyzeStoryConcept,
+  setReviewMode,
+  subscribeToPendingRequests,
+  resolvePendingRequest,
+  rejectPendingRequest,
+  PendingRequestData
+} from './services/geminiService';
 
 interface LogEntry {
   id: string;
@@ -14,6 +25,9 @@ interface LogEntry {
   title: string;
   data: any;
   timestamp: number;
+  model?: string;
+  dynamicPrompt?: string;
+  finalPrompt?: string;
 }
 
 const EMPTY_PROJECT_BACKBONE: ProjectBackbone = {
@@ -33,6 +47,15 @@ const EMPTY_PROJECT_BACKBONE: ProjectBackbone = {
 };
 
 const App: React.FC = () => {
+  // --- DEBUG WINDOW CHECK ---
+  const [isDebugWindow, setIsDebugWindow] = useState(false);
+
+  useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    setIsDebugWindow(searchParams.get('debug') === 'true');
+  }, []);
+
+  // --- STATE ---
   const [state, setState] = useState<StoryState>({
     step: 0,
     idea: '',
@@ -68,6 +91,7 @@ const App: React.FC = () => {
     });
   };
 
+  // --- DEBUG & LOGGING ---
   const [debugMode, setDebugMode] = useState(false);
   const [debugHeight, setDebugHeight] = useState(400);
   const [isResizingDebug, setIsResizingDebug] = useState(false);
@@ -76,6 +100,73 @@ const App: React.FC = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisStatus, setAnalysisStatus] = useState<string>("");
   const logEndRef = useRef<HTMLDivElement>(null);
+
+  // --- REVIEW MODE STATE ---
+  const [reviewMode, setReviewModeState] = useState(false);
+  const [pendingRequest, setPendingRequest] = useState<PendingRequestData | null>(null);
+
+  // Detach Logic
+  const [isDebugDetached, setIsDebugDetached] = useState(false);
+  const debugWindowRef = useRef<Window | null>(null);
+  const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
+
+  // Initialize BroadcastChannel
+  useEffect(() => {
+    const channel = new BroadcastChannel('storygen-debug');
+    broadcastChannelRef.current = channel;
+
+    channel.onmessage = (event) => {
+      const { type, payload } = event.data;
+
+      if (type === 'LOG_UPDATE') {
+        // Received new log (Debug Window)
+        setLogs(prev => [...prev, payload]);
+      } else if (type === 'SYNC_REQUEST') {
+        // Received sync request (Main Window)
+        // Send all current logs and state to the new window
+        channel.postMessage({ type: 'SYNC_RESPONSE', payload: logs });
+        channel.postMessage({ type: 'USAGE_UPDATE', payload: totalUsage });
+        channel.postMessage({ type: 'TOGGLE_REVIEW_MODE', payload: reviewMode }); // Sync review mode
+        if (pendingRequest) {
+          channel.postMessage({ type: 'PENDING_REQUEST_UPDATE', payload: pendingRequest });
+        }
+      } else if (type === 'SYNC_RESPONSE') {
+        // Received full history (Debug Window)
+        setLogs(payload);
+      } else if (type === 'USAGE_UPDATE') {
+        setTotalUsage(payload);
+      } else if (type === 'CLEAR_LOGS') {
+        setLogs([]);
+      } else if (type === 'TOGGLE_REVIEW_MODE') {
+        // Received toggle from other window
+        setReviewModeState(payload);
+        setReviewMode(payload); // Update local service
+      } else if (type === 'PENDING_REQUEST_UPDATE') {
+        // Received pending request (Debug Window)
+        setPendingRequest(payload);
+      } else if (type === 'RESOLVE_REQUEST') {
+        // Received resolve command (Main Window)
+        resolvePendingRequest(payload.id, payload.prompt);
+      } else if (type === 'REJECT_REQUEST') {
+        // Received reject command (Main Window)
+        rejectPendingRequest(payload.id);
+      }
+    };
+
+    // If we are the debug window, request sync immediately
+    if (new URLSearchParams(window.location.search).get('debug') === 'true') {
+      channel.postMessage({ type: 'SYNC_REQUEST' });
+    }
+
+    return () => {
+      channel.close();
+    };
+  }, []); // Empty dependency array to run once on mount
+
+  // Sync Review Mode with Service (Main Window Only - but harmless in debug window as service is local)
+  useEffect(() => {
+    setReviewMode(reviewMode);
+  }, [reviewMode]);
 
   // Debug Resizing Logic
   useEffect(() => {
@@ -101,9 +192,16 @@ const App: React.FC = () => {
     navigator.clipboard.writeText(text);
   };
 
+  // Subscribe to Service Logs & Requests (Main Window Only)
   useEffect(() => {
+    if (isDebugWindow) return; // Debug window receives logs via BroadcastChannel
+
     const unsubscribeLogs = subscribeToDebugLog((log) => {
-      setLogs(prev => [...prev, { ...log, id: crypto.randomUUID() }]);
+      const newLog = { ...log, id: crypto.randomUUID() };
+      setLogs(prev => [...prev, newLog]);
+
+      // Broadcast to debug window
+      broadcastChannelRef.current?.postMessage({ type: 'LOG_UPDATE', payload: newLog });
 
       // Update status based on logs for better UX
       if (log.title.includes("Generating Skeleton")) setAnalysisStatus("Génération de la structure narrative...");
@@ -111,38 +209,88 @@ const App: React.FC = () => {
     });
 
     const unsubscribeUsage = subscribeToUsage((stats) => {
-      setTotalUsage(prev => ({
-        inputTokens: prev.inputTokens + stats.inputTokens,
-        outputTokens: prev.outputTokens + stats.outputTokens,
-        cost: prev.cost + stats.cost
-      }));
+      setTotalUsage(prev => {
+        const newStats = {
+          inputTokens: prev.inputTokens + stats.inputTokens,
+          outputTokens: prev.outputTokens + stats.outputTokens,
+          cost: prev.cost + stats.cost
+        };
+        // Broadcast usage
+        broadcastChannelRef.current?.postMessage({ type: 'USAGE_UPDATE', payload: newStats });
+        return newStats;
+      });
+    });
+
+    const unsubscribePending = subscribeToPendingRequests((req) => {
+      setPendingRequest(req);
+      // Broadcast pending request
+      broadcastChannelRef.current?.postMessage({ type: 'PENDING_REQUEST_UPDATE', payload: req });
     });
 
     return () => {
       unsubscribeLogs();
       unsubscribeUsage();
+      unsubscribePending();
     };
-  }, []);
+  }, [isDebugWindow]);
 
   // Point #1: Log empty structure when on Step 1 (index 0)
   useEffect(() => {
-    if (state.step === 0) {
+    if (state.step === 0 && !isDebugWindow) {
       console.log("Step 1 Active - Logging Empty Project Backbone");
-      setLogs(prev => [...prev, {
+      const newLog: LogEntry = {
         id: crypto.randomUUID(),
         type: 'info',
         title: 'Step 1: Empty Project Backbone',
         data: EMPTY_PROJECT_BACKBONE,
         timestamp: Date.now()
-      }]);
+      };
+      setLogs(prev => [...prev, newLog]);
+      broadcastChannelRef.current?.postMessage({ type: 'LOG_UPDATE', payload: newLog });
     }
-  }, [state.step]);
+  }, [state.step, isDebugWindow]);
 
   useEffect(() => {
-    if (debugMode && logEndRef.current) {
+    if ((debugMode || isDebugWindow) && logEndRef.current) {
       logEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [logs, debugMode]);
+  }, [logs, debugMode, isDebugWindow]);
+
+  // Handle Detach Window
+  useEffect(() => {
+    if (isDebugDetached) {
+      // Open new window with ?debug=true
+      const newWindow = window.open(window.location.href.split('?')[0] + '?debug=true', 'DebugConsole', 'width=800,height=600,left=200,top=200');
+
+      if (newWindow) {
+        debugWindowRef.current = newWindow;
+
+        // Handle window close
+        const checkWindowClosed = setInterval(() => {
+          if (newWindow.closed) {
+            setIsDebugDetached(false);
+            debugWindowRef.current = null;
+            clearInterval(checkWindowClosed);
+          }
+        }, 500);
+
+      } else {
+        // Popup blocked or failed
+        setIsDebugDetached(false);
+      }
+    } else {
+      // Close window if it exists
+      if (debugWindowRef.current) {
+        debugWindowRef.current.close();
+        debugWindowRef.current = null;
+      }
+    }
+
+    return () => {
+      // Cleanup if needed
+    };
+  }, [isDebugDetached]);
+
 
   const nextStep = async () => {
     // Point #2: Intercept Step 1 -> Step 2
@@ -163,13 +311,15 @@ const App: React.FC = () => {
         });
 
         // Log the filled result
-        setLogs(prev => [...prev, {
+        const newLog: LogEntry = {
           id: crypto.randomUUID(),
           type: 'info',
           title: 'Step 1 Analysis Complete (Project Backbone)',
           data: projectBackbone,
           timestamp: Date.now()
-        }]);
+        };
+        setLogs(prev => [...prev, newLog]);
+        broadcastChannelRef.current?.postMessage({ type: 'LOG_UPDATE', payload: newLog });
 
         setState(prev => ({
           ...prev,
@@ -263,6 +413,50 @@ const App: React.FC = () => {
     reader.readAsText(file);
   };
 
+  // --- HANDLERS FOR DEBUG CONSOLE ---
+  const handleToggleReviewMode = (enabled: boolean) => {
+    setReviewModeState(enabled);
+    setReviewMode(enabled); // Update local
+    broadcastChannelRef.current?.postMessage({ type: 'TOGGLE_REVIEW_MODE', payload: enabled });
+  };
+
+  const handleResolveRequest = (id: string, prompt: string) => {
+    resolvePendingRequest(id, prompt); // Try local resolution (works if main window)
+    broadcastChannelRef.current?.postMessage({ type: 'RESOLVE_REQUEST', payload: { id, prompt } }); // Send to main window (if detached)
+  };
+
+  const handleRejectRequest = (id: string) => {
+    rejectPendingRequest(id); // Try local resolution
+    broadcastChannelRef.current?.postMessage({ type: 'REJECT_REQUEST', payload: { id } }); // Send to main window
+  };
+
+  // --- RENDER DEBUG WINDOW ---
+  if (isDebugWindow) {
+    return (
+      <DebugConsole
+        logs={logs}
+        totalUsage={totalUsage}
+        isOpen={true}
+        onClose={() => window.close()}
+        onClear={() => {
+          setLogs([]);
+          broadcastChannelRef.current?.postMessage({ type: 'CLEAR_LOGS' });
+        }}
+        isDetached={true}
+        onToggleDetach={() => {
+          // Reattach logic: Close this window, main window will detect close and reset state
+          window.close();
+        }}
+        isReviewMode={reviewMode}
+        onToggleReviewMode={handleToggleReviewMode}
+        pendingRequest={pendingRequest}
+        onResolveRequest={handleResolveRequest}
+        onRejectRequest={handleRejectRequest}
+      />
+    );
+  }
+
+  // --- RENDER MAIN APP ---
   return (
     <div className="h-screen flex flex-row bg-slate-50 text-slate-900 overflow-hidden">
 
@@ -356,7 +550,7 @@ const App: React.FC = () => {
         {/* SCROLLABLE WORKSPACE */}
         <main
           className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-8 w-full relative"
-          style={{ paddingBottom: debugMode ? debugHeight + 40 : 40 }}
+          style={{ paddingBottom: debugMode && !isDebugDetached ? debugHeight + 40 : 40 }}
         >
           <div className="max-w-6xl mx-auto">
             <div className="flex-shrink-0 mb-6">
@@ -442,73 +636,27 @@ const App: React.FC = () => {
           </div>
         </main>
 
-        {/* DEBUG BOTTOM BAR */}
-        {debugMode && (
-          <div
-            className="fixed bottom-0 right-0 z-50 bg-slate-900 border-t border-slate-700 shadow-2xl flex flex-col transition-none"
-            style={{ height: debugHeight, left: '16rem' }} // Left 16rem = 64 (Sidebar width)
-          >
-            {/* Drag Handle */}
-            <div
-              className="h-1.5 bg-slate-800 hover:bg-indigo-500 cursor-ns-resize w-full flex-shrink-0 transition-colors"
-              onMouseDown={() => setIsResizingDebug(true)}
-            />
-
-            <div className="bg-slate-950 px-6 py-3 border-b border-slate-800 flex justify-between items-center flex-shrink-0">
-              <div className="flex items-center gap-3">
-                <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                <span className="text-sm font-mono font-bold uppercase tracking-wider text-slate-300">GenAI Debug Console</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-4 px-4 border-l border-r border-slate-700">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-slate-500 font-bold uppercase">In</span>
-                    <span className="text-xs font-mono text-slate-300">{totalUsage.inputTokens.toLocaleString()}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-slate-500 font-bold uppercase">Out</span>
-                    <span className="text-xs font-mono text-slate-300">{totalUsage.outputTokens.toLocaleString()}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-slate-500 font-bold uppercase">Cost</span>
-                    <span className="text-xs font-mono text-emerald-400">${totalUsage.cost.toFixed(4)}</span>
-                  </div>
-                </div>
-                <button onClick={() => setLogs([])} className="text-xs text-slate-500 hover:text-white uppercase font-bold px-3 py-1 rounded hover:bg-slate-800 transition-colors">Clear</button>
-                <button onClick={() => setDebugMode(false)} className="text-slate-500 hover:text-white transition-colors">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                </button>
-              </div>
-            </div>
-            <div className="flex-1 overflow-y-auto px-6 py-4 font-mono text-xs space-y-3 custom-scrollbar">
-              {logs.length === 0 && (
-                <div className="text-slate-600 italic text-center mt-12">Waiting for API activity...</div>
-              )}
-              {logs.map(log => (
-                <div key={log.id} className="flex flex-col gap-1 group">
-                  <div className="flex items-center gap-2">
-                    <span className="text-slate-600 text-[10px]">{new Date(log.timestamp).toLocaleTimeString()}</span>
-                    <span className={`px-1.5 rounded-sm font-bold text-[9px] uppercase ${log.type === 'req' ? 'bg-blue-900 text-blue-300' :
-                      log.type === 'res' ? 'bg-emerald-900 text-emerald-300' :
-                        log.type === 'error' ? 'bg-red-900 text-red-300' : 'bg-slate-800 text-slate-300'
-                      }`}>{log.type}</span>
-                    <span className="text-slate-300 font-bold">{log.title}</span>
-                    <button
-                      onClick={() => copyToClipboard(JSON.stringify(log.data, null, 2))}
-                      className="opacity-0 group-hover:opacity-100 ml-auto text-slate-500 hover:text-white transition-opacity"
-                      title="Copy JSON"
-                    >
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-                    </button>
-                  </div>
-                  <div className="bg-slate-950/50 p-2 rounded border border-slate-800 text-slate-400 whitespace-pre-wrap break-words overflow-hidden select-text">
-                    {JSON.stringify(log.data, null, 2)}
-                  </div>
-                </div>
-              ))}
-              <div ref={logEndRef}></div>
-            </div>
-          </div>
+        {/* DEBUG CONSOLE (INLINE ONLY - DETACHED IS HANDLED ABOVE) */}
+        {debugMode && !isDebugDetached && (
+          <DebugConsole
+            logs={logs}
+            totalUsage={totalUsage}
+            isOpen={true}
+            onClose={() => setDebugMode(false)}
+            onClear={() => {
+              setLogs([]);
+              broadcastChannelRef.current?.postMessage({ type: 'CLEAR_LOGS' });
+            }}
+            isDetached={false}
+            onToggleDetach={() => setIsDebugDetached(true)}
+            height={debugHeight}
+            onResizeStart={() => setIsResizingDebug(true)}
+            isReviewMode={reviewMode}
+            onToggleReviewMode={handleToggleReviewMode}
+            pendingRequest={pendingRequest}
+            onResolveRequest={handleResolveRequest}
+            onRejectRequest={handleRejectRequest}
+          />
         )}
       </div>
     </div>

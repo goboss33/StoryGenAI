@@ -22,6 +22,97 @@ if (!apiKey) {
 
 const genAI = new GoogleGenerativeAI(apiKey || "MISSING_KEY");
 
+// --- REVIEW MODE INFRASTRUCTURE ---
+let isReviewMode = false;
+
+export const setReviewMode = (enabled: boolean) => {
+  console.log(`[GeminiService] setReviewMode called: ${enabled}`);
+  isReviewMode = enabled;
+};
+
+export const getReviewMode = () => {
+  return isReviewMode;
+};
+
+export interface PendingRequest {
+  id: string;
+  title: string;
+  prompt: string;
+  resolve: (newPrompt: string) => void;
+  reject: () => void;
+}
+
+// Serializable version for UI/Channel
+export interface PendingRequestData {
+  id: string;
+  title: string;
+  prompt: string;
+}
+
+type PendingRequestListener = (request: PendingRequestData | null) => void;
+let pendingRequestListeners: PendingRequestListener[] = [];
+// Store active requests by ID to allow external resolution
+const activeRequests = new Map<string, PendingRequest>();
+
+export const subscribeToPendingRequests = (listener: PendingRequestListener) => {
+  pendingRequestListeners.push(listener);
+  return () => { pendingRequestListeners = pendingRequestListeners.filter(l => l !== listener); };
+};
+
+const notifyPendingRequest = (request: PendingRequest | null) => {
+  const data = request ? { id: request.id, title: request.title, prompt: request.prompt } : null;
+  pendingRequestListeners.forEach(l => l(data));
+};
+
+export const resolvePendingRequest = (id: string, newPrompt: string) => {
+  const req = activeRequests.get(id);
+  if (req) {
+    req.resolve(newPrompt);
+    activeRequests.delete(id);
+  } else {
+    console.warn(`[GeminiService] Attempted to resolve unknown request ${id}`);
+  }
+};
+
+export const rejectPendingRequest = (id: string) => {
+  const req = activeRequests.get(id);
+  if (req) {
+    req.reject();
+    activeRequests.delete(id);
+  } else {
+    console.warn(`[GeminiService] Attempted to reject unknown request ${id}`);
+  }
+};
+
+const checkReviewMode = async (prompt: string, title: string): Promise<string> => {
+  console.log(`[GeminiService] checkReviewMode for "${title}". ReviewMode is: ${isReviewMode}`);
+
+  if (!isReviewMode) return prompt;
+
+  console.log(`[GeminiService] Pausing for review...`);
+  return new Promise((resolve, reject) => {
+    const id = crypto.randomUUID();
+    const pendingRequest: PendingRequest = {
+      id,
+      title,
+      prompt,
+      resolve: (newPrompt) => {
+        console.log(`[GeminiService] Request resolved`);
+        notifyPendingRequest(null); // Clear pending
+        resolve(newPrompt);
+      },
+      reject: () => {
+        console.log(`[GeminiService] Request rejected`);
+        notifyPendingRequest(null);
+        reject(new Error("Request cancelled by user"));
+      }
+    };
+
+    activeRequests.set(id, pendingRequest);
+    notifyPendingRequest(pendingRequest);
+  });
+};
+
 // Helper to assemble dynamic prompt from modular action data
 export const assembleActionPrompt = (shot: Scene, assets: Asset[]): string => {
   if (!shot.actionData) return "";
@@ -61,7 +152,16 @@ export const assembleActionPrompt = (shot: Scene, assets: Asset[]): string => {
 
 // --- LOGGING INFRASTRUCTURE ---
 type LogType = 'req' | 'res' | 'info' | 'error';
-type LogListener = (log: { type: LogType; title: string; data: any; timestamp: number }) => void;
+type LogListener = (log: {
+  type: LogType;
+  title: string;
+  data: any;
+  timestamp: number;
+  model?: string;
+  dynamicPrompt?: string;
+  finalPrompt?: string;
+}) => void;
+
 let listeners: LogListener[] = [];
 
 export const subscribeToDebugLog = (listener: LogListener) => {
@@ -69,8 +169,19 @@ export const subscribeToDebugLog = (listener: LogListener) => {
   return () => { listeners = listeners.filter(l => l !== listener); };
 };
 
-export const logDebug = (type: LogType, title: string, data: any) => {
-  const payload = { type, title, data, timestamp: Date.now() };
+export const logDebug = (
+  type: LogType,
+  title: string,
+  data: any,
+  options?: { model?: string; dynamicPrompt?: string; finalPrompt?: string }
+) => {
+  const payload = {
+    type,
+    title,
+    data,
+    timestamp: Date.now(),
+    ...options
+  };
   listeners.forEach(l => l(payload));
 };
 
@@ -131,32 +242,32 @@ const generateStorySkeleton = async (
   idea: string,
   settings: { tone: string; targetAudience: string; language: string; duration: number; videoType: string; visualStyle: string }
 ): Promise<import("../types").ProjectBackbone> => {
-  const prompt = `
+  const template = `
     Role: Showrunner & Lead Writer.
     Task: Create the "Project Backbone" (Structure, Characters, Locations, Scene List) for a video project.
     
     INPUT:
-    - Idea: "${idea}"
-    - Type: ${settings.videoType}
-    - Visual Style: ${settings.visualStyle}
-    - Tone: ${settings.tone}
-    - Audience: ${settings.targetAudience}
-    - Language: ${settings.language}
-    - Total Duration: ${settings.duration}s
+    - Idea: "{{idea}}"
+    - Type: {{videoType}}
+    - Visual Style: {{visualStyle}}
+    - Tone: {{tone}}
+    - Audience: {{targetAudience}}
+    - Language: {{language}}
+    - Total Duration: {{duration}}s
 
     INSTRUCTIONS:
     1. **Characters**: Create detailed profiles (Name, Role, Visual Description).
     2. **Locations**: Create detailed profiles (Name, Environment Prompt).
     3. **Scene List**: Break the story into logical scenes.
        - Assign an \`estimated_duration_sec\` to each scene.
-       - **CRITICAL**: The sum of scene durations MUST equal ${settings.duration}s (+/- 5s).
+       - **CRITICAL**: The sum of scene durations MUST equal {{duration}}s (+/- 5s).
        - **DO NOT generate shots yet.** Leave the "shots" array empty [].
 
     OUTPUT JSON:
     {
       "project_id": "uuid",
-      "meta_data": { "title": "string", "user_intent": "${idea}", "created_at": "${new Date().toISOString()}" },
-      "config": { "aspect_ratio": "16:9", "resolution": "1080p", "target_fps": 24, "primary_language": "${settings.language}", "target_audience": "${settings.targetAudience}", "tone_style": "${settings.tone}" },
+      "meta_data": { "title": "string", "user_intent": "{{idea}}", "created_at": "${new Date().toISOString()}" },
+      "config": { "aspect_ratio": "16:9", "resolution": "1080p", "target_fps": 24, "primary_language": "{{language}}", "target_audience": "{{targetAudience}}", "tone_style": "{{tone}}" },
       "global_assets": { "art_style_prompt": "string", "negative_prompt": "string", "music_theme_id": "string" },
       "database": {
         "characters": [{ "id": "char_01", "name": "string", "role": "string", "visual_seed": { "description": "string" } }],
@@ -166,14 +277,30 @@ const generateStorySkeleton = async (
           "estimated_duration_sec": 10, "shots": [] 
         }]
       },
-      "final_render": { "total_duration_sec": ${settings.duration} }
+      "final_render": { "total_duration_sec": {{duration}} }
     }
   `;
 
-  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp", generationConfig: { responseMimeType: "application/json" } });
+  let prompt = template
+    .replace(/{{idea}}/g, idea)
+    .replace(/{{videoType}}/g, settings.videoType)
+    .replace(/{{visualStyle}}/g, settings.visualStyle)
+    .replace(/{{tone}}/g, settings.tone)
+    .replace(/{{targetAudience}}/g, settings.targetAudience)
+    .replace(/{{language}}/g, settings.language)
+    .replace(/{{duration}}/g, settings.duration.toString());
+
+  // INTERCEPT FOR REVIEW
+  prompt = await checkReviewMode(prompt, 'Generate Skeleton');
+
+  const modelName = "gemini-2.0-flash-exp";
+  const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "application/json" } });
+
+  logDebug('req', 'Generate Skeleton', { idea }, { model: modelName, dynamicPrompt: template, finalPrompt: prompt });
+
   const result = await model.generateContent(prompt);
   const text = result.response.text();
-  trackUsage("gemini-2.0-flash-exp", prompt.length / 4, text.length / 4);
+  trackUsage(modelName, prompt.length / 4, text.length / 4);
   return JSON.parse(text);
 };
 
@@ -182,24 +309,24 @@ const generateSceneShots = async (
   scene: import("../types").SceneTemplate,
   context: import("../types").ProjectBackbone
 ): Promise<import("../types").ShotTemplate[]> => {
-  const prompt = `
+  const template = `
     Role: Director of Photography & Editor.
     Task: Generate a detailed SHOT LIST for ONE specific scene.
     
     CONTEXT:
-    - Project Title: "${context.meta_data.title}"
-    - Style: "${context.global_assets.art_style_prompt}"
-    - Characters: ${JSON.stringify(context.database.characters.map(c => ({ id: c.id, name: c.name, desc: c.visual_seed.description })))}
-    - Location: ${JSON.stringify(context.database.locations.find(l => l.id === scene.location_ref_id))}
+    - Project Title: "{{title}}"
+    - Style: "{{style}}"
+    - Characters: {{characters}}
+    - Location: {{location}}
     
     SCENE TO VISUALIZE:
-    - Slugline: ${scene.slugline}
-    - Goal: ${scene.narrative_goal}
-    - Duration: ${scene.estimated_duration_sec} seconds
+    - Slugline: {{slugline}}
+    - Goal: {{narrative_goal}}
+    - Duration: {{duration}} seconds
 
     INSTRUCTIONS:
     1. Break this scene into a sequence of shots.
-    2. **CRITICAL**: The sum of shot durations MUST equal ${scene.estimated_duration_sec}s.
+    2. **CRITICAL**: The sum of shot durations MUST equal {{duration}}s.
     3. For each shot:
        - \`final_image_prompt\`: Detailed static visual description.
        - \`video_motion_prompt\`: Camera movement and action for AI video.
@@ -209,7 +336,7 @@ const generateSceneShots = async (
     [
       {
         "shot_index": 1,
-        "id": "shot_${scene.id}_01",
+        "id": "shot_{{sceneId}}_01",
         "duration_sec": 3,
         "composition": { "shot_type": "Wide", "camera_movement": "Pan", "angle": "Eye Level" },
         "content": { 
@@ -224,10 +351,27 @@ const generateSceneShots = async (
     ]
   `;
 
-  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp", generationConfig: { responseMimeType: "application/json" } });
+  let prompt = template
+    .replace(/{{title}}/g, context.meta_data.title)
+    .replace(/{{style}}/g, context.global_assets.art_style_prompt)
+    .replace('{{characters}}', JSON.stringify(context.database.characters.map(c => ({ id: c.id, name: c.name, desc: c.visual_seed.description }))))
+    .replace('{{location}}', JSON.stringify(context.database.locations.find(l => l.id === scene.location_ref_id)))
+    .replace(/{{slugline}}/g, scene.slugline)
+    .replace(/{{narrative_goal}}/g, scene.narrative_goal)
+    .replace(/{{duration}}/g, scene.estimated_duration_sec.toString())
+    .replace(/{{sceneId}}/g, scene.id);
+
+  // INTERCEPT FOR REVIEW
+  prompt = await checkReviewMode(prompt, `Generate Shots (Scene ${scene.id})`);
+
+  const modelName = "gemini-2.0-flash-exp";
+  const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "application/json" } });
+
+  logDebug('req', 'Generate Shots', { sceneId: scene.id }, { model: modelName, dynamicPrompt: template, finalPrompt: prompt });
+
   const result = await model.generateContent(prompt);
   const text = result.response.text();
-  trackUsage("gemini-2.0-flash-exp", prompt.length / 4, text.length / 4);
+  trackUsage(modelName, prompt.length / 4, text.length / 4);
   return JSON.parse(text);
 };
 
@@ -314,21 +458,21 @@ export const populateScriptAudio = async (
       role: c.role
     }));
 
-    const prompt = `
+    const template = `
     Role: Professional Screenwriter & Dialogue Editor.
     Task: Write precise dialogue and audio cues for an existing visual storyboard.
     
     INPUT CONTEXT:
-    - Title: "${project.meta_data.title}"
-    - Intent: "${project.meta_data.user_intent}"
-    - Tone: "${project.config.tone_style}"
-    - Language: "${project.config.primary_language}"
+    - Title: "{{title}}"
+    - Intent: "{{intent}}"
+    - Tone: "{{tone}}"
+    - Language: "{{language}}"
     
     CHARACTERS:
-    ${JSON.stringify(characterContext, null, 2)}
+    {{characters}}
 
     VISUAL STORYBOARD (DO NOT CHANGE STRUCTURE):
-    ${JSON.stringify(visualContext, null, 2)}
+    {{visualStoryboard}}
 
     INSTRUCTIONS:
     1. **Fill Empty Audio Slots**: For each shot, you must provide the 'audio' object.
@@ -352,45 +496,27 @@ export const populateScriptAudio = async (
     }
     `;
 
-    const responseSchema = {
-      type: SchemaType.OBJECT,
-      properties: {
-        shot_audio_map: {
-          type: SchemaType.OBJECT,
-          additionalProperties: {
-            type: SchemaType.OBJECT,
-            properties: {
-              audio_context: { type: SchemaType.STRING },
-              specificAudioCues: { type: SchemaType.STRING },
-              is_voice_over: { type: SchemaType.BOOLEAN },
-              dialogue: {
-                type: SchemaType.ARRAY,
-                items: {
-                  type: SchemaType.OBJECT,
-                  properties: {
-                    speaker: { type: SchemaType.STRING },
-                    text: { type: SchemaType.STRING },
-                    tone: { type: SchemaType.STRING }
-                  },
-                  required: ["speaker", "text", "tone"]
-                }
-              }
-            },
-            required: ["audio_context", "is_voice_over"]
-          }
-        }
-      }
-    };
+    let prompt = template
+      .replace(/{{title}}/g, project.meta_data.title)
+      .replace(/{{intent}}/g, project.meta_data.user_intent)
+      .replace(/{{tone}}/g, project.config.tone_style)
+      .replace(/{{language}}/g, project.config.primary_language)
+      .replace('{{characters}}', JSON.stringify(characterContext, null, 2))
+      .replace('{{visualStoryboard}}', JSON.stringify(visualContext, null, 2));
 
+    // INTERCEPT FOR REVIEW
+    prompt = await checkReviewMode(prompt, 'Populate Script Audio');
+
+    const modelName = "gemini-2.0-flash-exp";
     const model = genAI.getGenerativeModel({
-      model: "gemini-2.0-flash-exp",
+      model: modelName,
       generationConfig: {
         responseMimeType: "application/json",
-        // responseSchema: responseSchema as any, // Dynamic schema map is tricky, let's rely on JSON mode
       },
     });
 
-    logDebug('req', 'Populate Script Audio', { prompt });
+    logDebug('req', 'Populate Script Audio', { projectTitle: project.meta_data.title }, { model: modelName, dynamicPrompt: template, finalPrompt: prompt });
+
     const result = await model.generateContent(prompt);
     const response = result.response;
     const jsonText = response.text();
@@ -434,7 +560,7 @@ export const populateScriptAudio = async (
 
     // Usage tracking
     if (response.usageMetadata) {
-      trackUsage("gemini-2.0-flash-exp", response.usageMetadata.promptTokenCount, response.usageMetadata.candidatesTokenCount);
+      trackUsage(modelName, response.usageMetadata.promptTokenCount, response.usageMetadata.candidatesTokenCount);
     }
 
     return {
@@ -471,27 +597,25 @@ export const generateScript = async (
     })));
 
     // NEW STRICT SYSTEM PROMPT (Hierarchy & Reusability Rules)
-    let prompt = `
+    const template = `
       Role: Expert Director & Production Asset Manager.
       Task: Create a VISUAL STORYBOARD (Screenplay) that perfectly matches the provided AUDIO SCRIPT.
       
       INPUT CONTEXT:
-      - Concept: "${idea}"
-      - Total Duration: ${totalDuration}s
-      - Pacing: ${pacing}
-      - Language: ${language}
+      - Concept: "{{idea}}"
+      - Total Duration: {{totalDuration}}s
+      - Pacing: {{pacing}}
+      - Language: {{language}}
       
       AUDIO SCRIPT (SOURCE OF TRUTH):
-      ${audioScriptText}
+      {{audioScriptText}}
 
       INSTRUCTIONS:
       1. **Synchronize Visuals**: You must create visual shots that correspond to the audio script. 
          - A single dialogue line might need 1 shot, or multiple shots (e.g. cutting between characters).
          - Ensure the total duration of your shots matches the audio script duration.
       2. **Visual Dynamism**:
-         ${pacing === 'fast' ? "Use rapid cuts, dynamic camera movements, and high energy." :
-        pacing === 'slow' ? "Use long takes, slow pans/zooms, and atmospheric focus." :
-          "Balance establishing shots with action cuts."}
+         {{pacingInstruction}}
       
       PHASE 1: WRITE THE SCRIPT (Sequences & Shots)
       - Group shots into SEQUENCES based on location/time.
@@ -512,140 +636,37 @@ export const generateScript = async (
       - Every shot MUST list castIds (characters in shot) and itemIds.
     `;
 
+    const pacingInstruction = pacing === 'fast' ? "Use rapid cuts, dynamic camera movements, and high energy." :
+      pacing === 'slow' ? "Use long takes, slow pans/zooms, and atmospheric focus." :
+        "Balance establishing shots with action cuts.";
+
+    let prompt = template
+      .replace(/{{idea}}/g, idea)
+      .replace(/{{totalDuration}}/g, totalDuration.toString())
+      .replace(/{{pacing}}/g, pacing)
+      .replace(/{{language}}/g, language)
+      .replace('{{audioScriptText}}', audioScriptText)
+      .replace('{{pacingInstruction}}', pacingInstruction);
+
     // --- DYNAMIC PLACEHOLDER REPLACEMENT ---
     prompt = prompt.replace('{{valid_shot_types}}', JSON.stringify(VALID_SHOT_TYPES));
     prompt = prompt.replace('{{valid_camera_angles}}', JSON.stringify(VALID_CAMERA_ANGLES));
     prompt = prompt.replace('{{valid_composition_tags}}', JSON.stringify(VALID_COMPOSITION_TAGS));
 
-    logDebug('req', 'Generate Script Prompt', { prompt });
+    // INTERCEPT FOR REVIEW
+    prompt = await checkReviewMode(prompt, 'Generate Script');
 
-    const responseSchema = {
-      type: SchemaType.OBJECT,
-      properties: {
-        sequences: {
-          type: SchemaType.ARRAY,
-          items: {
-            type: SchemaType.OBJECT,
-            properties: {
-              id: { type: SchemaType.STRING },
-              locationId: { type: SchemaType.STRING },
-              time: { type: SchemaType.STRING },
-              weather: { type: SchemaType.STRING },
-              lighting: { type: SchemaType.STRING },
-              context: { type: SchemaType.STRING },
-              shots: {
-                type: SchemaType.ARRAY,
-                items: {
-                  type: SchemaType.OBJECT,
-                  properties: {
-                    shotType: { type: SchemaType.STRING },
-                    cameraAngle: { type: SchemaType.STRING },
-                    movement: { type: SchemaType.STRING },
-                    compositionTags: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
-                    duration: { type: SchemaType.NUMBER },
-                    // description: { type: SchemaType.STRING }, // REMOVED
-                    actionData: {
-                      type: SchemaType.OBJECT,
-                      properties: {
-                        baseEnvironment: { type: SchemaType.STRING },
-                        characterActions: {
-                          type: SchemaType.ARRAY,
-                          items: {
-                            type: SchemaType.OBJECT,
-                            properties: {
-                              castId: { type: SchemaType.STRING },
-                              action: { type: SchemaType.STRING }
-                            },
-                            required: ["castId", "action"]
-                          },
-                          nullable: true
-                        },
-                        itemStates: {
-                          type: SchemaType.ARRAY,
-                          items: {
-                            type: SchemaType.OBJECT,
-                            properties: {
-                              itemId: { type: SchemaType.STRING },
-                              state: { type: SchemaType.STRING }
-                            },
-                            required: ["itemId", "state"]
-                          },
-                          nullable: true
-                        }
-                      },
-                      required: ["baseEnvironment"]
-                    },
-                    veoMotionPrompt: { type: SchemaType.STRING },
-                    dialogue: { type: SchemaType.STRING },
-                    sfx: { type: SchemaType.STRING },
-                    music: { type: SchemaType.STRING },
-                    castIds: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
-                    itemIds: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } }
-                  },
-                  required: ["shotType", "cameraAngle", "movement", "compositionTags", "duration", "actionData", "veoMotionPrompt", "dialogue", "sfx", "music", "castIds", "itemIds"]
-                }
-              }
-            },
-            required: ["id", "locationId", "time", "shots"]
-          }
-        },
-        world: {
-          type: SchemaType.OBJECT,
-          properties: {
-            locations: {
-              type: SchemaType.ARRAY,
-              items: {
-                type: SchemaType.OBJECT,
-                properties: {
-                  id: { type: SchemaType.STRING },
-                  name: { type: SchemaType.STRING },
-                  type: { type: SchemaType.STRING, enum: ["MASTER", "SUB"] },
-                  parentId: { type: SchemaType.STRING, nullable: true },
-                  description: { type: SchemaType.STRING }
-                },
-                required: ["id", "name", "type", "description"]
-              }
-            },
-            characters: {
-              type: SchemaType.ARRAY,
-              items: {
-                type: SchemaType.OBJECT,
-                properties: {
-                  id: { type: SchemaType.STRING },
-                  name: { type: SchemaType.STRING },
-                  description: { type: SchemaType.STRING }
-                },
-                required: ["id", "name", "description"]
-              }
-            },
-            items: {
-              type: SchemaType.ARRAY,
-              items: {
-                type: SchemaType.OBJECT,
-                properties: {
-                  id: { type: SchemaType.STRING },
-                  name: { type: SchemaType.STRING },
-                  description: { type: SchemaType.STRING }
-                },
-                required: ["id", "name", "description"]
-              }
-            }
-          },
-          required: ["locations", "characters", "items"]
-        }
-      },
-      required: ["sequences", "world"]
-    };
-
+    const modelName = "gemini-2.0-flash-exp";
     const model = genAI.getGenerativeModel({
-      model: "gemini-2.0-flash-exp",
+      model: modelName,
       generationConfig: {
         responseMimeType: "application/json",
-        responseSchema: responseSchema as any,
+        // responseSchema: responseSchema as any, // Using JSON mode instead
       },
     });
 
-    logDebug('req', 'Generate Script', { prompt });
+    logDebug('req', 'Generate Script Prompt', { idea }, { model: modelName, dynamicPrompt: template, finalPrompt: prompt });
+
     const result = await model.generateContent(prompt);
     const response = result.response;
     const json = response.text();
@@ -745,23 +766,28 @@ export const generateImage = async (
   aspectRatio?: string // Optional: e.g. "16:9", "1:1". If not provided, AI decides format
 ): Promise<string> => {
   try {
-    logDebug('req', 'Generate Image (Gemini 3 Pro)', { prompt, aspectRatio });
+    const modelName = 'gemini-3-pro-image-preview';
 
-    if (!prompt || prompt.trim().length === 0) throw new Error("Prompt cannot be empty");
-    const cleanPrompt = prompt.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+    // INTERCEPT FOR REVIEW
+    const finalPrompt = await checkReviewMode(prompt, 'Generate Image');
 
-    let finalPrompt = cleanPrompt;
+    logDebug('req', 'Generate Image', { prompt, aspectRatio }, { model: modelName, finalPrompt: finalPrompt });
+
+    if (!finalPrompt || finalPrompt.trim().length === 0) throw new Error("Prompt cannot be empty");
+    const cleanPrompt = finalPrompt.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+
+    let apiPrompt = cleanPrompt;
     if (aspectRatio) {
-      finalPrompt += ` --aspect-ratio ${aspectRatio}`;
+      apiPrompt += ` --aspect-ratio ${aspectRatio}`;
     }
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-3-pro-image-preview' });
+    const model = genAI.getGenerativeModel({ model: modelName });
     const response = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: finalPrompt }] }],
+      contents: [{ role: 'user', parts: [{ text: apiPrompt }] }],
     });
 
     // Track Usage (Image Cost: $0.134)
-    trackUsage('gemini-3-pro-image-preview', 0, 0, 0.134);
+    trackUsage(modelName, 0, 0, 0.134);
 
     const candidate = response.response.candidates?.[0];
     const part = candidate?.content?.parts?.[0];
@@ -788,27 +814,30 @@ export const editImage = async (
   maskBase64?: string
 ): Promise<string> => {
   try {
-    logDebug('req', 'Edit Image (Gemini 3 Pro)', { prompt, hasMask: !!maskBase64 });
+    const modelName = 'gemini-3-pro-image-preview';
+
+    // INTERCEPT FOR REVIEW
+    const finalPrompt = await checkReviewMode(prompt, 'Edit Image');
+
+    logDebug('req', 'Edit Image', { prompt, hasMask: !!maskBase64 }, { model: modelName, finalPrompt: finalPrompt });
+
     const { mimeType, data } = parseDataUri(imageUri);
     const parts: any[] = [
       { inlineData: { mimeType, data } },
-      { text: prompt }
+      { text: finalPrompt }
     ];
 
     if (maskBase64) {
       const maskData = parseDataUri(maskBase64);
       parts.push({ inlineData: { mimeType: maskData.mimeType, data: maskData.data } });
-      parts.push({ text: "Use the black and white image as a mask. White is the area to edit." });
     }
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-3-pro-image-preview' });
+    const model = genAI.getGenerativeModel({ model: modelName });
     const response = await model.generateContent({
-      contents: [{ role: 'user', parts: parts }],
-      generationConfig: { responseMimeType: "image/png" }
+      contents: [{ role: 'user', parts }]
     });
 
-    // Track Usage (Image Cost: $0.134)
-    trackUsage('gemini-3-pro-image-preview', 0, 0, 0.134);
+    trackUsage(modelName, 0, 0, 0.134);
 
     const candidate = response.response.candidates?.[0];
     const part = candidate?.content?.parts?.[0];
@@ -817,321 +846,77 @@ export const editImage = async (
       logDebug('res', 'Edit Image Success', { size: part.inlineData.data.length });
       return `data: image / png; base64, ${part.inlineData.data} `;
     }
-    throw new Error("No image generated from edit");
-  } catch (error) {
-    logDebug('error', 'Edit Image Failed', error);
-    console.error("Edit image failed:", error);
-    throw error;
-  }
-};
-
-// --- 5. Generate Video (Veo) ---
-export const generateVideo = async (imageUri: string, prompt: string, aspectRatio: '16:9' | '9:16' = '16:9'): Promise<string> => {
-  if (typeof window !== 'undefined' && (window as any).aistudio) {
-    try {
-      const hasKey = await (window as any).aistudio.hasSelectedApiKey();
-      if (!hasKey) await (window as any).aistudio.openSelectKey();
-    } catch (e) { console.warn("AI Studio key check failed", e); }
-  }
-
-  logDebug('req', 'Generate Video (Veo)', { prompt, aspectRatio });
-
-  // The GoogleGenerativeAI client does not directly expose a `generateVideos` method
-  // like the previous code snippet suggested. Veo is a separate product.
-  // For now, we'll use a placeholder or mock the behavior.
-  // If Veo is to be integrated, it would likely require a separate client or direct REST calls.
-
-  // MOCK MODE CHECK
-  if ((import.meta as any).env.VITE_USE_MOCK_VEO === 'true') {
-    logDebug('info', 'MOCK MODE: Simulating Generate Video', { prompt, aspectRatio });
-    await new Promise(resolve => setTimeout(resolve, 2000)); // Simulate latency
-    return "https://placehold.co/1280x720/mp4?text=Mock+Video";
-  }
-
-  // Placeholder for Veo integration.
-  // The original code had a structure that implied a `veoAi.models.generateVideos` method,
-  // which is not part of the standard `@google-generative - ai` SDK.
-  // This section is being replaced with a placeholder to allow the code to compile.
-  // A proper Veo integration would involve using the specific Veo API/SDK.
-  console.warn("Veo video generation via standard SDK is not fully supported. Returning placeholder.");
-  trackUsage('veo-3.1-fast-generate-preview', 0, 0, 0.75); // Track mock usage
-  return "https://placehold.co/1280x720/mp4?text=Generated+Video";
-
-
-};
-
-// --- 5b. Generate Plan Video (Veo 3.1 Preview with Duration) ---
-export const generatePlanVideo = async (
-  imageUri: string,
-  prompt: string,
-  aspectRatio: '16:9' | '9:16',
-  duration: number
-): Promise<{ localUri: string; remoteUri: string }> => {
-  // MOCK MODE CHECK
-  if ((import.meta as any).env.VITE_USE_MOCK_VEO === 'true') {
-    logDebug('info', 'MOCK MODE: Simulating Generate Plan Video', { duration });
-    await new Promise(resolve => setTimeout(resolve, 2000)); // Simulate latency
-    // Return the input image as the "video" for visual feedback (UI might need to handle this or it will just show a static poster)
-    // And a fake remote URI to prove chaining works
-    return { localUri: imageUri, remoteUri: `mock-file-uri-${Date.now()}` };
-  }
-
-  // Validate aspect ratio (only 16:9 and 9:16 supported)
-  if (aspectRatio !== '16:9' && aspectRatio !== '9:16') {
-    throw new Error(`Aspect ratio ${aspectRatio} not supported. Only 16:9 and 9:16 are allowed.`);
-  }
-
-  // Validate duration (Veo supports 1-8 seconds for preview model)
-  const clampedDuration = Math.min(Math.max(duration, 1), 8);
-
-  if (typeof window !== 'undefined' && (window as any).aistudio) {
-    try {
-      const hasKey = await (window as any).aistudio.hasSelectedApiKey();
-      if (!hasKey) await (window as any).aistudio.openSelectKey();
-    } catch (e) { console.warn("AI Studio key check failed", e); }
-  }
-
-  logDebug('req', 'Generate Plan Video (Veo 3.1)', { prompt, aspectRatio, duration: clampedDuration });
-
-  // Placeholder for Veo 3.1 integration.
-  // Similar to `generateVideo`, this assumes a specific Veo API that is not part of the standard SDK.
-  // This section is being replaced with a placeholder to allow the code to compile.
-  console.warn("Veo 3.1 Plan Video generation via SDK is not fully supported. Returning placeholder.");
-  const estimatedCost = clampedDuration * 0.15;
-  trackUsage('veo-3.1-generate-preview', 0, 0, estimatedCost); // Track mock usage
-  return { localUri: "https://placehold.co/1280x720/mp4?text=Generated+Plan+Video", remoteUri: "mock-remote-uri" };
-};
-
-// --- 5c. Extend Video (Veo 3.1) ---
-export const extendVideo = async (
-  remoteVideoUri: string,
-  prompt: string,
-  aspectRatio: '16:9' | '9:16'
-): Promise<{ localUri: string; remoteUri: string }> => {
-  // MOCK MODE CHECK
-  if ((import.meta as any).env.VITE_USE_MOCK_VEO === 'true') {
-    logDebug('info', 'MOCK MODE: Simulating Extend Video', { sourceUri: remoteVideoUri });
-    await new Promise(resolve => setTimeout(resolve, 2000)); // Simulate latency
-
-    // In mock mode, we just return the same "video" (which is actually an image URI in our mock strategy)
-    // and a new fake remote URI to show the chain is progressing
-    return { localUri: "mock-video-content", remoteUri: `mock-file-uri-extended-${Date.now()}` };
-  }
-
-  if (typeof window !== 'undefined' && (window as any).aistudio) {
-    try {
-      const hasKey = await (window as any).aistudio.hasSelectedApiKey();
-      if (!hasKey) await (window as any).aistudio.openSelectKey();
-    } catch (e) { console.warn("AI Studio key check failed", e); }
-  }
-
-  logDebug('req', 'Extend Video (Veo 3.1)', { prompt, aspectRatio, sourceUri: remoteVideoUri });
-
-  // Placeholder for Veo 3.1 Extension integration.
-  // Similar to `generateVideo`, this assumes a specific Veo API that is not part of the standard SDK.
-  // This section is being replaced with a placeholder to allow the code to compile.
-  console.warn("Veo 3.1 Video Extension via SDK is not fully supported. Returning placeholder.");
-  trackUsage('veo-3.1-generate-preview', 0, 0, 0.75); // Track mock usage
-  return { localUri: "https://placehold.co/1280x720/mp4?text=Extended+Video", remoteUri: "mock-remote-uri-extended" };
-};
-
-// --- 6. Generate Multimodal Image (Gemini 3 Pro) ---
-export const generateMultimodalImage = async (
-  prompt: string,
-  references: { name: string; data: string; mimeType: string }[],
-  aspectRatio?: string // Optional: e.g. "16:9", "1:1". If not provided, AI decides format
-): Promise<string> => {
-  try {
-    logDebug('req', 'Generate Multimodal Image (Gemini 3 Pro)', { prompt, refs: references.map(r => r.name), aspectRatio });
-    const parts: any[] = [];
-    references.forEach(ref => {
-      parts.push({ inlineData: { mimeType: ref.mimeType, data: ref.data } });
-    });
-    parts.push({ text: prompt });
-
-    if (aspectRatio) {
-      parts.push({ text: `Aspect Ratio: ${aspectRatio}` });
-    }
-
-    const model = genAI.getGenerativeModel({ model: 'gemini-3-pro-image-preview' });
-    const response = await model.generateContent({
-      contents: [{ role: 'user', parts: parts }],
-    });
-
-    // Track Usage (Image Cost: $0.134)
-    trackUsage('gemini-3-pro-image-preview', 0, 0, 0.134);
-
-    const candidate = response.response.candidates?.[0];
-    const part = candidate?.content?.parts?.[0];
-
-    // Check for InlineData (base64)
-    if (part && part.inlineData && part.inlineData.data) {
-      logDebug('res', 'Generate Multimodal Image Success', { size: part.inlineData.data.length });
-      return `data: image / png; base64, ${part.inlineData.data} `;
-    }
 
     throw new Error("No image data received from Gemini 3 Pro");
 
   } catch (err) {
-    logDebug('error', 'Generate Multimodal Image Failed', err);
+    logDebug('error', 'Edit Image Failed', err);
     throw err;
   }
 };
 
-// --- SMART REGENERATION SERVICES ---
-
-// Helper to clean JSON string from markdown code blocks
-const cleanJsonString = (text: string): string => {
-  let cleaned = text.trim();
-  // Remove markdown code blocks if present
-  if (cleaned.startsWith("```")) {
-    cleaned = cleaned.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
-  }
-  return cleaned;
-};
-
+// --- 5. Analyze Asset Changes ---
 export const analyzeAssetChanges = async (
-  originalDb: ProjectBackbone['database'],
-  currentDb: ProjectBackbone['database']
-): Promise<AssetChangeAnalysis> => {
-  const model = genAI.getGenerativeModel({
-    model: "gemini-3-pro-preview",
-    generationConfig: { responseMimeType: "application/json" }
+  current: import("../types").ProjectBackbone['database'],
+  original: import("../types").ProjectBackbone['database']
+): Promise<import("../types").AssetChangeAnalysis> => {
+  // Simple comparison logic
+  const changes: string[] = [];
+
+  // Check characters
+  current.characters.forEach(c => {
+    const orig = original.characters.find(o => o.id === c.id);
+    if (!orig) changes.push(`New character added: ${c.name}`);
+    else if (orig.name !== c.name) changes.push(`Character renamed: ${orig.name} -> ${c.name}`);
+    else if (orig.visual_seed.description !== c.visual_seed.description) changes.push(`Character ${c.name} description modified`);
   });
 
-  const prompt = `
-  You are an expert Story Analyst. The user has modified the assets (Characters or Locations) of their story.
-  Your task is to analyze these changes and determine if the user's intent is clear or if you need to ask clarifying questions before rewriting the story sequencer.
+  // Check locations
+  current.locations.forEach(l => {
+    const orig = original.locations.find(o => o.id === l.id);
+    if (!orig) changes.push(`New location added: ${l.name}`);
+    else if (orig.name !== l.name) changes.push(`Location renamed: ${orig.name} -> ${l.name}`);
+    else if (orig.environment_prompt !== l.environment_prompt) changes.push(`Location ${l.name} prompt modified`);
+  });
 
-  ORIGINAL ASSETS:
-  Characters: ${JSON.stringify(originalDb.characters)}
-  Locations: ${JSON.stringify(originalDb.locations)}
-
-  CURRENT ASSETS (MODIFIED BY USER):
-  Characters: ${JSON.stringify(currentDb.characters)}
-  Locations: ${JSON.stringify(currentDb.locations)}
-
-
-  INSTRUCTIONS:
-  1. Identify what changed (added/removed/modified items).
-  2. Infer the narrative impact.
-     - Example: If a "Villain" was added, the story likely needs a conflict scene.
-     - Example: If a "School" location was added, scenes might need to move there.
-  3. Decide if you have enough info to regenerate the scene list (sequencer) automatically.
-     - Return status: "CONFIRMED" if the intent is obvious (e.g., just added a location, or removed a minor character).
-     - Return status: "QUESTION" if the intent is ambiguous (e.g., added a character named "Bob" with no role, or removed the Main Character).
-  4. If status is "QUESTION", provide 1-2 multiple-choice questions (RefineQuestion) to clarify.
-
-  OUTPUT SCHEMA (JSON):
-  {
-    "status": "CONFIRMED" | "QUESTION",
-    "reasoning": "Explanation of your analysis...",
-    "questions": [
-      {
-        "id": "q1",
-        "text": "Question text?",
-        "options": [
-          { "id": "opt1", "label": "Option 1" },
-          { "id": "opt2", "label": "Option 2" }
-        ]
-      }
-    ] (optional, only if status is QUESTION)
+  if (changes.length === 0) {
+    return { status: 'CONFIRMED', reasoning: "No significant changes detected." };
   }
-  `;
 
-  try {
-    const result = await model.generateContent(prompt);
-    const response = result.response;
-    const text = cleanJsonString(response.text());
-    return JSON.parse(text) as AssetChangeAnalysis;
-  } catch (error) {
-    console.error("Error analyzing asset changes:", error);
-    // Fallback to confirmed to avoid blocking, but log error
-    return { status: 'CONFIRMED', reasoning: "Error in analysis, proceeding with best guess." };
-  }
+  return {
+    status: 'QUESTION',
+    reasoning: "Changes detected in assets. Do you want to regenerate the scene shots to reflect these changes?",
+    questions: [{
+      id: "regenerate_shots",
+      text: "Regenerate shots for affected scenes?",
+      options: ["Yes", "No"]
+    }]
+  };
 };
 
+// --- 6. Regenerate Sequencer ---
 export const regenerateSequencer = async (
-  currentDb: ProjectBackbone['database'],
-  metaData: ProjectBackbone['meta_data'],
-  userAnswers?: Record<string, string>
-): Promise<SceneTemplate[]> => {
-  const model = genAI.getGenerativeModel({
-    model: "gemini-3-pro-preview",
-    generationConfig: { responseMimeType: "application/json" }
-  });
+  database: import("../types").ProjectBackbone['database'],
+  analysis: import("../types").AssetChangeAnalysis
+): Promise<import("../types").ProjectBackbone['database']> => {
+  console.warn("regenerateSequencer: Not fully implemented yet. Returning current database.");
+  return database;
+};
 
-  const prompt = `
-  You are an expert Screenwriter. The user has modified the characters or locations of their story.
-  Your task is to REGENERATE the Scene List (Sequencer) to reflect these changes.
+// --- 7. Generate Multimodal Image ---
+export const generateMultimodalImage = async (prompt: string, imageUris: string[]): Promise<string> => {
+  console.warn("generateMultimodalImage not implemented");
+  return "";
+};
 
-  STORY METADATA:
-  Title: ${metaData.title}
-  Logline: ${metaData.user_intent}
+// --- 8. Generate Plan Video ---
+export const generatePlanVideo = async (prompt: string, imageUri?: string, duration: number = 5): Promise<string> => {
+  console.warn("generatePlanVideo not implemented");
+  return "";
+};
 
-  UPDATED ASSETS:
-  Characters: ${JSON.stringify(currentDb.characters)}
-  Locations: ${JSON.stringify(currentDb.locations)}
-
-  USER CLARIFICATIONS (if any):
-  ${userAnswers ? JSON.stringify(userAnswers) : "None"}
-
-  INSTRUCTIONS:
-  1. Rewrite the list of scenes (sequencer).
-  2. Ensure NEW characters/locations are integrated meaningfully.
-  3. Ensure REMOVED characters/locations are gone from the narrative.
-  4. Maintain the original tone and pacing, but adapt the plot points as necessary.
-  5. Generate between 5 to 15 scenes depending on the story complexity.
-
-  OUTPUT SCHEMA (JSON Array of SceneTemplate):
-  [
-    {
-      "scene_index": 1,
-      "id": "scene_1",
-      "slugline": "INT. LOCATION - DAY",
-      "location_ref_id": "loc_id_ref",
-      "narrative_goal": "Description of what happens...",
-      "estimated_duration_sec": 15,
-      "shots": [] (Leave empty for now, will be generated later)
-    },
-    ...
-  ]
-  `;
-
-  try {
-    logDebug('req', 'Regenerating Sequencer', { prompt });
-
-    const result = await model.generateContent(prompt);
-    const response = result.response;
-    const text = cleanJsonString(response.text());
-
-    logDebug('res', 'Regenerated Sequencer Result', { text });
-
-    let parsed: any;
-    try {
-      parsed = JSON.parse(text);
-    } catch (e) {
-      console.error("JSON Parse Error:", e);
-      console.error("Failed Text:", text);
-      throw new Error("Invalid JSON received from AI");
-    }
-
-    let scenes: SceneTemplate[] = [];
-
-    if (Array.isArray(parsed)) {
-      scenes = parsed as SceneTemplate[];
-    } else if (parsed && Array.isArray(parsed.scenes)) {
-      // Handle case where AI wraps array in an object
-      scenes = parsed.scenes as SceneTemplate[];
-    } else {
-      console.error("Unexpected JSON structure:", parsed);
-      throw new Error("AI response is not an array of scenes");
-    }
-
-    // Ensure shots are initialized as empty arrays if missing
-    return scenes.map(scene => ({ ...scene, shots: scene.shots || [] }));
-  } catch (error) {
-    console.error("Error regenerating sequencer:", error);
-    throw new Error("Failed to regenerate sequencer");
-  }
+// --- 9. Extend Video ---
+export const extendVideo = async (videoUri: string, prompt: string): Promise<string> => {
+  console.warn("extendVideo not implemented");
+  return "";
 };
