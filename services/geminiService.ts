@@ -942,6 +942,12 @@ export const regenerateSequencer = async (
   return database;
 };
 
+// --- 7. Generate Multimodal Image ---
+export const generateMultimodalImage = async (prompt: string, imageUris: string[]): Promise<string> => {
+  console.warn("generateMultimodalImage not implemented");
+  return "";
+};
+
 // --- 8. Generate Plan Video ---
 export const generatePlanVideo = async (prompt: string, imageUri?: string, duration: number = 5): Promise<string> => {
   console.warn("generatePlanVideo not implemented");
