@@ -254,7 +254,7 @@ const SortableScriptLine = ({
             </div>
 
             {/* Right Side Actions (Delete & Drag) - Visible ONLY on Active */}
-            <div className={`absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 transition-opacity ${isActive ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+            <div className={`flex items-center gap-1 p-1 rounded-md bg-white shadow-sm border border-slate-100 transition-all self-start mt-1 ${isActive ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
                 {/* Delete Button */}
                 <button
                     onClick={(e) => { e.stopPropagation(); removeLine(sceneIndex, line.id); }}
