@@ -22,7 +22,7 @@ class AgentManager {
     return AgentManager.instance;
   }
 
-  public getAgent(role: AgentRole, model: any, systemInstruction?: string): ChatSession {
+  public getAgent(role: AgentRole, model: any, systemInstruction?: string, metadata?: { model?: string; dynamicPrompt?: string; finalPrompt?: string }): ChatSession {
     if (!this.agents.has(role)) {
       console.log(`[AgentManager ${this.id}] Creating new agent: ${role}`);
       const session = model.startChat({
@@ -40,7 +40,11 @@ class AgentManager {
           role: 'system',
           agentRole: role,
           content: systemInstruction,
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          // Attach metadata to system message
+          model: metadata?.model,
+          dynamicPrompt: metadata?.dynamicPrompt,
+          finalPrompt: metadata?.finalPrompt
         };
         this.addMessageToHistory(role, sysMsg);
         this.notifyListeners(role, sysMsg);
@@ -162,7 +166,11 @@ export const analyzeStoryConcept = async (
 
   // Get or Create DIRECTOR Agent
   const agentManager = AgentManager.getInstance();
-  const directorSession = agentManager.getAgent(AgentRole.DIRECTOR, model, systemInstruction);
+  const directorSession = agentManager.getAgent(AgentRole.DIRECTOR, model, systemInstruction, {
+    model: modelName,
+    dynamicPrompt: systemInstruction, // System instruction is static for now, but good to show
+    finalPrompt: systemInstruction
+  });
 
   // 1. Define Template
   const promptTemplate = `
@@ -243,21 +251,21 @@ export const generateScreenplay = async (
     const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "application/json" } });
 
     // 1. Initialize Screenwriter Agent with Project Bible
-    const projectBible = `
+    const projectBibleTemplate = `
       Role: Professional Screenwriter.
       Task: You are writing a screenplay for a video project. You will receive scene details one by one.
       
       PROJECT CONTEXT (THE BIBLE):
-      Title: ${meta_data.title}
-      Tone: ${config.tone_style}
-      Intent: ${meta_data.user_intent}
-      Language: ${config.primary_language}
+      Title: {{title}}
+      Tone: {{tone}}
+      Intent: {{intent}}
+      Language: {{language}}
       
       CHARACTERS:
-      ${database.characters.map(c => `- ${c.name} (${c.role}): ${c.visual_seed.description}`).join('\n')}
+      {{characters}}
       
       LOCATIONS:
-      ${database.locations.map(l => `- ${l.name} (${l.interior_exterior}): ${l.environment_prompt}`).join('\n')}
+      {{locations}}
 
       INSTRUCTIONS:
       1. Maintain consistency with previous scenes (you have full memory).
@@ -265,12 +273,24 @@ export const generateScreenplay = async (
       3. Output JSON only.
     `;
 
+    const projectBible = projectBibleTemplate
+      .replace(/{{title}}/g, meta_data.title)
+      .replace(/{{tone}}/g, config.tone_style)
+      .replace(/{{intent}}/g, meta_data.user_intent)
+      .replace(/{{language}}/g, config.primary_language)
+      .replace(/{{characters}}/g, database.characters.map(c => `- ${c.name} (${c.role}): ${c.visual_seed.description}`).join('\n'))
+      .replace(/{{locations}}/g, database.locations.map(l => `- ${l.name} (${l.interior_exterior}): ${l.environment_prompt}`).join('\n'));
+
     // Get or Create SCREENWRITER Agent
     const agentManager = AgentManager.getInstance();
     // Note: We might want to reset the screenwriter if it's a new generation run, but for now we keep persistence.
     // Ideally, we check if the bible changed. For simplicity, we assume the agent persists.
     // If we wanted to "reset" the memory for a new project, we'd clear the agent from the map.
-    const chatSession = agentManager.getAgent(AgentRole.SCREENWRITER, model, projectBible);
+    const chatSession = agentManager.getAgent(AgentRole.SCREENWRITER, model, projectBible, {
+      model: modelName,
+      dynamicPrompt: projectBibleTemplate,
+      finalPrompt: projectBible
+    });
 
     const updatedScenes: import("../types").SceneTemplate[] = [];
 

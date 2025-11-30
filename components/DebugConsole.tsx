@@ -243,7 +243,7 @@ const AgentMessageItem: React.FC<{ message: AgentMessage }> = ({ message }) => {
 
     // Hide content block if it's just a duplicate of the prompt (User messages usually)
     // If it's a user message and hasPrompts is true, the content IS the prompt, so we hide the raw content block.
-    const shouldHideContent = isUser && hasPrompts && !hasData;
+    const shouldHideContent = (isUser || isSystem) && hasPrompts && !hasData;
 
     const copyToClipboard = (text: string) => {
         navigator.clipboard.writeText(text);
