@@ -211,8 +211,8 @@ const LogItem: React.FC<{ log: LogEntry; isSummary?: boolean; onClick?: () => vo
                 </div>
             )}
 
-            {/* Raw Data (JSON) - Collapsible if prompt is shown, HIDDEN IN SUMMARY MODE unless expanded manually */}
-            {!isSummary && (
+            {/* Raw Data (JSON) - Collapsible if prompt is shown, Always visible now (even in summary) */}
+            {(true) && (
                 <div className={`bg-slate-950/50 p-2 rounded border border-slate-800 overflow-x-auto custom-scrollbar transition-all ${hasPrompts && !isExpanded ? 'max-h-20 opacity-70 hover:opacity-100 cursor-pointer' : ''}`}
                     onClick={(e) => { e.stopPropagation(); hasPrompts && !isExpanded && setIsExpanded(true); }}
                 >

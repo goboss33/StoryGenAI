@@ -312,6 +312,12 @@ export interface SceneTemplate {
   scene_index: number;
   id: string;
   slugline: string;
+  slugline_elements?: {
+    int_ext: 'INT.' | 'EXT.';
+    location: string;
+    time: string;
+  };
+  synopsis?: string;
   location_ref_id: string;
   narrative_goal: string;
   estimated_duration_sec: number; // Total duration of the scene

@@ -133,6 +133,7 @@ class AgentManager {
       data: parsedData
     };
     this.addMessageToHistory(role, modelMsg);
+    this.notifyListeners(role, modelMsg);
     return responseText;
   }
 
@@ -212,8 +213,15 @@ export const analyzeStoryConcept = async (
         "characters": [{ "id": "char_01", "name": "string", "role": "string", "visual_seed": { "description": "string" } }],
         "locations": [{ "id": "loc_01", "name": "string", "environment_prompt": "string", "interior_exterior": "INT" }],
         "scenes": [{ 
-          "scene_index": 1, "id": "sc_01", "slugline": "string", "location_ref_id": "string", "narrative_goal": "string", 
-          "estimated_duration_sec": 10, "shots": [] 
+          "scene_index": 1, 
+          "id": "sc_01", 
+          "slugline": "EXT. FOREST - DAY", 
+          "slugline_elements": { "int_ext": "EXT.", "location": "FOREST", "time": "DAY" },
+          "synopsis": "A brief description of what happens in the scene.",
+          "location_ref_id": "string", 
+          "narrative_goal": "string", 
+          "estimated_duration_sec": 10, 
+          "shots": [] 
         }]
       },
       "final_render": { "total_duration_sec": {{duration}} }
@@ -356,8 +364,10 @@ export const generateScreenplay = async (
         let scenePrompt = currentScenePrompt
           .replace(/{{sceneIndex}}/g, (i + 1).toString())
           .replace(/{{totalScenes}}/g, scenes.length.toString())
-          .replace(/{{slugline}}/g, scene.slugline)
-          .replace(/{{goal}}/g, scene.narrative_goal)
+          .replace(/{{slugline}}/g, scene.slugline_elements
+            ? `${scene.slugline_elements.int_ext} ${scene.slugline_elements.location} - ${scene.slugline_elements.time}`
+            : scene.slugline)
+          .replace(/{{goal}}/g, scene.synopsis ? `${scene.synopsis} (Goal: ${scene.narrative_goal})` : scene.narrative_goal)
           .replace(/{{duration}}/g, scene.estimated_duration_sec.toString());
 
         if (feedbackHistory.length > 0) {
@@ -386,7 +396,10 @@ export const generateScreenplay = async (
           });
           const content = JSON.parse(text);
 
-          logDebug('res', `Screenwriter Agent: Scene ${scene.slugline}`, { content });
+          logDebug('res', `Screenwriter Agent: Scene ${scene.slugline}`, { content }, {
+            agentRole: AgentRole.SCREENWRITER,
+            linkedMessageId: messageId
+          });
 
           trackUsage(modelName, finalPrompt.length / 4, text.length / 4);
 
