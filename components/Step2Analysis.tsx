@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { StoryState, ProjectBackbone, CharacterTemplate, LocationTemplate, AssetChangeAnalysis, RefineQuestion } from '../types';
-import { analyzeAssetChanges, regenerateSequencer, generateAssetImage } from '../services/geminiService';
+import { generateAssetImage } from '../services/geminiService';
 
 interface Props {
     project?: ProjectBackbone;
@@ -25,25 +25,10 @@ const Step2Analysis: React.FC<Props> = ({
     const [newItemRole, setNewItemRole] = useState(''); // Role for char, Type (INT/EXT) for loc
     const [newItemDesc, setNewItemDesc] = useState('');
 
-    // Regeneration State
-    const [isRegenerating, setIsRegenerating] = useState(false);
-    const [regenerationStatus, setRegenerationStatus] = useState('');
-    const [clarificationQuestions, setClarificationQuestions] = useState<RefineQuestion[]>([]);
-    const [showClarificationModal, setShowClarificationModal] = useState(false);
-    const [userAnswers, setUserAnswers] = useState<Record<string, string>>({});
+
     const [generatingAssetId, setGeneratingAssetId] = useState<string | null>(null);
 
-    // --- CHANGE DETECTION LOGIC ---
-    const hasChanges = useMemo(() => {
-        if (!project || !originalDatabase) return false;
 
-        const currentChars = JSON.stringify(project.database.characters);
-        const originalChars = JSON.stringify(originalDatabase.characters);
-        const currentLocs = JSON.stringify(project.database.locations);
-        const originalLocs = JSON.stringify(originalDatabase.locations);
-
-        return currentChars !== originalChars || currentLocs !== originalLocs;
-    }, [project, originalDatabase]);
 
     const handleRemoveCharacter = (index: number) => {
         if (!project) return;
@@ -90,69 +75,7 @@ const Step2Analysis: React.FC<Props> = ({
         setIsModalOpen(false);
     };
 
-    const performRegeneration = async (answers?: Record<string, string>) => {
-        if (!project) return;
 
-        try {
-            const updatedScenes = await regenerateSequencer(
-                project.database,
-                project.meta_data,
-                answers
-            );
-
-            const updatedDatabase = {
-                ...project.database,
-                scenes: updatedScenes
-            };
-
-            onUpdateAssets(updatedDatabase);
-            onRegenerationComplete(updatedDatabase);
-
-            setShowClarificationModal(false);
-            setClarificationQuestions([]);
-            setUserAnswers({});
-
-        } catch (error) {
-            console.error("Regeneration execution failed:", error);
-            alert("Impossible de régénérer le séquencier.");
-        } finally {
-            setIsRegenerating(false);
-        }
-    };
-
-    const handleRegenerateSequencer = async () => {
-        if (!project || !originalDatabase) return;
-
-        setIsRegenerating(true);
-        setRegenerationStatus("Analyse des changements...");
-
-        try {
-            const analysis = await analyzeAssetChanges(originalDatabase, project.database);
-
-            if (analysis.status === 'QUESTION' && analysis.questions && analysis.questions.length > 0) {
-                setClarificationQuestions(analysis.questions);
-                setShowClarificationModal(true);
-                setRegenerationStatus("En attente de clarification...");
-                setIsRegenerating(false);
-                return;
-            }
-
-            await performRegeneration();
-
-        } catch (error) {
-            console.error("Regeneration failed:", error);
-            alert("Erreur lors de la régénération. Veuillez réessayer.");
-            setIsRegenerating(false);
-        }
-    };
-
-    const handleAnswerSelect = (questionId: string, optionId: string) => {
-        setUserAnswers(prev => ({ ...prev, [questionId]: optionId }));
-    };
-
-    const handleSubmitClarifications = () => {
-        performRegeneration(userAnswers);
-    };
 
     const handleGenerateImage = async (type: AssetType, index: number) => {
         if (!project) return;
@@ -187,16 +110,16 @@ const Step2Analysis: React.FC<Props> = ({
         }
     };
 
-    if (!project || isAnalyzing || isRegenerating) {
+    if (!project || isAnalyzing) {
         return (
             <div className="h-full flex items-center justify-center">
                 <div className="text-center max-w-md mx-auto px-6">
                     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-6"></div>
                     <h3 className="text-lg font-bold text-slate-800 mb-2">
-                        {isRegenerating ? "Régénération..." : "Analyse en cours..."}
+                        Analyse en cours...
                     </h3>
                     <p className="text-slate-500 mb-4">
-                        {isRegenerating ? regenerationStatus : (analysisStatus || "L'IA analyse votre concept...")}
+                        {analysisStatus || "L'IA analyse votre concept..."}
                     </p>
                 </div>
             </div>
@@ -387,18 +310,10 @@ const Step2Analysis: React.FC<Props> = ({
                             <span className="bg-blue-100 text-blue-600 w-6 h-6 rounded flex items-center justify-center text-xs">4</span>
                             Séquencier ({project.database.scenes.length} scènes)
                         </h2>
-                        {hasChanges && (
-                            <button
-                                onClick={handleRegenerateSequencer}
-                                className="animate-pulse bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-sm shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all flex items-center gap-2"
-                            >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-                                Régénérer le Séquencier
-                            </button>
-                        )}
+
                     </div>
 
-                    <div className={`space-y-3 transition-opacity duration-300 ${hasChanges ? 'opacity-50' : 'opacity-100'}`}>
+                    <div className="space-y-3">
                         {project.database.scenes.map((scene, idx) => (
                             <div key={idx} className="p-4 border border-slate-100 rounded-xl bg-slate-50 flex gap-4 items-start">
                                 <div className="font-mono text-slate-400 font-bold text-sm pt-1">#{scene.scene_index}</div>
@@ -415,14 +330,7 @@ const Step2Analysis: React.FC<Props> = ({
                         ))}
                     </div>
 
-                    {hasChanges && (
-                        <div className="absolute inset-0 bg-white/50 backdrop-blur-[1px] flex items-center justify-center z-10 pointer-events-none">
-                            <div className="bg-white p-4 rounded-xl shadow-xl border border-slate-200 text-center max-w-sm pointer-events-auto">
-                                <div className="text-indigo-600 font-bold mb-1">Modifications Détectées</div>
-                                <p className="text-sm text-slate-500 mb-3">Vous avez modifié les personnages ou lieux. Veuillez régénérer le séquencier pour prendre en compte ces changements.</p>
-                            </div>
-                        </div>
-                    )}
+
                 </section>
 
             </div>
@@ -434,10 +342,7 @@ const Step2Analysis: React.FC<Props> = ({
 
                 <button
                     onClick={onNext}
-                    disabled={hasChanges} // Disable next if changes are pending
-                    className={`px-8 py-3 rounded-xl font-bold shadow-lg transition-all flex items-center gap-2 ${hasChanges
-                        ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
-                        : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-200'}`}
+                    className="px-8 py-3 rounded-xl font-bold shadow-lg transition-all flex items-center gap-2 bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-200"
                 >
                     Valider & Continuer
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
@@ -521,56 +426,7 @@ const Step2Analysis: React.FC<Props> = ({
                 )
             }
 
-            {/* CLARIFICATION MODAL */}
-            {
-                showClarificationModal && (
-                    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-                        <div className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-2xl transform transition-all scale-100">
-                            <h3 className="text-xl font-bold text-slate-900 mb-2">Clarification Nécessaire</h3>
-                            <p className="text-slate-500 text-sm mb-6">L'IA a besoin de précisions sur vos changements pour régénérer le séquencier.</p>
 
-                            <div className="space-y-6">
-                                {clarificationQuestions.map((q) => (
-                                    <div key={q.id}>
-                                        <div className="font-bold text-slate-800 mb-2">{q.text}</div>
-                                        <div className="space-y-2">
-                                            {q.options.map((opt: any) => (
-                                                <label key={opt.id} className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer transition-colors">
-                                                    <input
-                                                        type="radio"
-                                                        name={q.id}
-                                                        value={opt.id}
-                                                        checked={userAnswers[q.id] === opt.id}
-                                                        onChange={() => handleAnswerSelect(q.id, opt.id)}
-                                                        className="w-4 h-4 text-indigo-600 focus:ring-indigo-500"
-                                                    />
-                                                    <span className="text-sm text-slate-700">{opt.label}</span>
-                                                </label>
-                                            ))}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-
-                            <div className="flex gap-3 mt-8">
-                                <button
-                                    onClick={() => setShowClarificationModal(false)}
-                                    className="flex-1 py-3 rounded-xl font-bold text-slate-500 hover:bg-slate-100 transition-colors"
-                                >
-                                    Annuler
-                                </button>
-                                <button
-                                    onClick={handleSubmitClarifications}
-                                    disabled={Object.keys(userAnswers).length < clarificationQuestions.length}
-                                    className={`flex-1 py-3 rounded-xl font-bold text-white transition-colors ${Object.keys(userAnswers).length < clarificationQuestions.length ? 'bg-indigo-300 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200'}`}
-                                >
-                                    Valider & Régénérer
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )
-            }
         </div >
     );
 };
