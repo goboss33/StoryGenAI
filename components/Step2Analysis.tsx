@@ -176,6 +176,48 @@ const Step2Analysis: React.FC<Props> = ({
                             Ajouter
                         </button>
                     </div>
+
+                    {/* Audio Options Bar */}
+                    <div className="flex items-center gap-6 mb-6 ml-8 bg-slate-50 p-3 rounded-lg border border-slate-100 w-fit">
+                        {/* Dialogue Toggle */}
+                        <label className={`flex items-center gap-3 ${project.database.characters.length === 0 ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+                            <div className={`w-10 h-5 rounded-full relative transition-colors ${project.config.has_dialogue && project.database.characters.length > 0 ? 'bg-fuchsia-600' : 'bg-slate-300'}`}>
+                                <input
+                                    type="checkbox"
+                                    className="sr-only"
+                                    checked={project.config.has_dialogue && project.database.characters.length > 0}
+                                    disabled={project.database.characters.length === 0}
+                                    onChange={(e) => onUpdate({
+                                        project: {
+                                            ...project,
+                                            config: { ...project.config, has_dialogue: e.target.checked }
+                                        }
+                                    })}
+                                />
+                                <div className={`absolute top-1 left-1 w-3 h-3 bg-white rounded-full transition-transform ${project.config.has_dialogue && project.database.characters.length > 0 ? 'translate-x-5' : ''}`}></div>
+                            </div>
+                            <span className="text-sm font-bold text-slate-700">Dialogues</span>
+                        </label>
+
+                        {/* Voice Over Toggle */}
+                        <label className="flex items-center gap-3 cursor-pointer">
+                            <div className={`w-10 h-5 rounded-full relative transition-colors ${project.config.has_voiceover ? 'bg-fuchsia-600' : 'bg-slate-300'}`}>
+                                <input
+                                    type="checkbox"
+                                    className="sr-only"
+                                    checked={!!project.config.has_voiceover}
+                                    onChange={(e) => onUpdate({
+                                        project: {
+                                            ...project,
+                                            config: { ...project.config, has_voiceover: e.target.checked }
+                                        }
+                                    })}
+                                />
+                                <div className={`absolute top-1 left-1 w-3 h-3 bg-white rounded-full transition-transform ${project.config.has_voiceover ? 'translate-x-5' : ''}`}></div>
+                            </div>
+                            <span className="text-sm font-bold text-slate-700">Voix-off</span>
+                        </label>
+                    </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {project.database.characters.map((char, idx) => (
                             <div key={idx} className="p-4 border border-slate-100 rounded-xl bg-slate-50 hover:border-fuchsia-200 transition-colors group relative">
@@ -333,7 +375,7 @@ const Step2Analysis: React.FC<Props> = ({
 
                 </section>
 
-            </div>
+            </div >
 
             <div className="pt-6 border-t border-slate-100 flex justify-between items-center">
                 <button onClick={onBack} className="px-6 py-3 rounded-xl text-slate-500 font-medium hover:bg-slate-100 transition-colors">

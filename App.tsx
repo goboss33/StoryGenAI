@@ -41,7 +41,9 @@ const EMPTY_PROJECT_BACKBONE: ProjectBackbone = {
     target_fps: 24,
     primary_language: "fr-FR",
     target_audience: "General Public",
-    tone_style: "Cinematic"
+    tone_style: "Cinematic",
+    has_dialogue: true,
+    has_voiceover: true
   },
   global_assets: { art_style_prompt: "", negative_prompt: "" },
   database: { characters: [], locations: [], scenes: [] },

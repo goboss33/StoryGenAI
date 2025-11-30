@@ -342,6 +342,8 @@ export interface ProjectBackbone {
     primary_language: string;
     target_audience: string;
     tone_style: string;
+    has_dialogue?: boolean;
+    has_voiceover?: boolean;
   };
   global_assets: {
     art_style_prompt: string;
