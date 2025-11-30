@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
+import ScriptEditorInput from './ScriptEditorInput';
+
 import { ProjectBackbone, SceneTemplate, ScriptLine, CharacterTemplate } from '../types';
 import { generateScreenplay } from '../services/geminiService';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
@@ -73,15 +75,6 @@ const SortableScriptLine = ({
     const characterColor = isDialogue ? getCharacterColor(line.speaker) : 'bg-transparent';
     const highlightClass = isActive && isDialogue ? characterColor : 'bg-transparent';
 
-    const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-    useEffect(() => {
-        if (textareaRef.current) {
-            textareaRef.current.style.height = 'auto';
-            textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
-        }
-    }, [line.content]);
-
     return (
         <div
             ref={setNodeRef}
@@ -120,18 +113,11 @@ const SortableScriptLine = ({
                 {/* Editable Text Area */}
                 <div className={`relative rounded px-1 -mx-1 ${highlightClass} transition-colors duration-200`}>
                     {line.type === 'parenthetical' && <span className="text-slate-400 mr-1">(</span>}
-                    <textarea
-                        ref={textareaRef}
+                    <ScriptEditorInput
                         value={line.content}
-                        onChange={(e) => {
-                            handleLineChange(sceneIndex, line.id, 'content', e.target.value);
-                            // Auto-resize immediately on change as well
-                            e.target.style.height = 'auto';
-                            e.target.style.height = `${e.target.scrollHeight}px`;
-                        }}
-                        className={`w-full bg-transparent outline-none resize-none overflow-hidden text-slate-800 placeholder-slate-300 ${line.type === 'parenthetical' ? 'italic text-slate-500' : ''} ${line.type === 'transition' ? 'text-right uppercase font-bold' : ''}`}
+                        onChange={(value) => handleLineChange(sceneIndex, line.id, 'content', value)}
+                        className={`w-full bg-transparent outline-none text-slate-800 placeholder-slate-300 ${line.type === 'parenthetical' ? 'italic text-slate-500' : ''} ${line.type === 'transition' ? 'text-right uppercase font-bold' : ''}`}
                         placeholder={line.type === 'dialogue' ? "Dialogue..." : "Action description..."}
-                        style={{ minHeight: '1.5em' }}
                         onClick={(e) => e.stopPropagation()}
                         onFocus={() => {
                             setActiveLineId(line.id);
