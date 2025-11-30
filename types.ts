@@ -180,7 +180,8 @@ export const TARGET_AUDIENCES = [
 // --- AGENT SYSTEM TYPES ---
 export enum AgentRole {
   DIRECTOR = 'Director',
-  SCREENWRITER = 'Screenwriter'
+  SCREENWRITER = 'Screenwriter',
+  REVIEWER = 'Reviewer'
 }
 
 export interface AgentMessage {

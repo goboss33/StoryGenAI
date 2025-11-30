@@ -375,7 +375,8 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
     const [activeTab, setActiveTab] = useState<'SYSTEM' | AgentRole>('SYSTEM');
     const [agentMessages, setAgentMessages] = useState<Record<AgentRole, AgentMessage[]>>({
         [AgentRole.DIRECTOR]: [],
-        [AgentRole.SCREENWRITER]: []
+        [AgentRole.SCREENWRITER]: [],
+        [AgentRole.REVIEWER]: []
     });
     const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
 
@@ -384,7 +385,8 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
         // Load initial history
         setAgentMessages({
             [AgentRole.DIRECTOR]: getAgentHistory(AgentRole.DIRECTOR),
-            [AgentRole.SCREENWRITER]: getAgentHistory(AgentRole.SCREENWRITER)
+            [AgentRole.SCREENWRITER]: getAgentHistory(AgentRole.SCREENWRITER),
+            [AgentRole.REVIEWER]: getAgentHistory(AgentRole.REVIEWER)
         });
 
         const unsubscribe = subscribeToAgentMessages((role, message) => {
@@ -526,6 +528,12 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
                     className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors ${activeTab === AgentRole.SCREENWRITER ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
                 >
                     ✍️ Screenwriter
+                </button>
+                <button
+                    onClick={() => setActiveTab(AgentRole.REVIEWER)}
+                    className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors ${activeTab === AgentRole.REVIEWER ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
+                >
+                    ⚖️ Reviewer
                 </button>
             </div>
 

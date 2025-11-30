@@ -333,52 +333,118 @@ export const generateScreenplay = async (
         }
       `;
 
-      // 2. Fill Template
-      const scenePrompt = scenePromptTemplate
-        .replace(/{{sceneIndex}}/g, (i + 1).toString())
-        .replace(/{{totalScenes}}/g, scenes.length.toString())
-        .replace(/{{slugline}}/g, scene.slugline)
-        .replace(/{{goal}}/g, scene.narrative_goal)
-        .replace(/{{duration}}/g, scene.estimated_duration_sec.toString());
+      let attempts = 0;
+      const MAX_ATTEMPTS = 3;
+      let currentScenePrompt = scenePromptTemplate;
+      let feedbackHistory: string[] = [];
 
-      try {
-        // INTERCEPT FOR REVIEW
-        const finalPrompt = await checkReviewMode(scenePrompt, `Screenwriter: Scene ${scene.slugline}`);
+      while (attempts < MAX_ATTEMPTS) {
+        attempts++;
 
-        const messageId = crypto.randomUUID();
-        logDebug('req', `Screenwriter Agent: Scene ${scene.slugline}`, { sceneId: scene.id }, {
-          model: modelName,
-          dynamicPrompt: scenePromptTemplate,
-          finalPrompt: finalPrompt,
-          agentRole: AgentRole.SCREENWRITER,
-          linkedMessageId: messageId
-        });
+        // 2. Fill Template (with feedback if retry)
+        let scenePrompt = currentScenePrompt
+          .replace(/{{sceneIndex}}/g, (i + 1).toString())
+          .replace(/{{totalScenes}}/g, scenes.length.toString())
+          .replace(/{{slugline}}/g, scene.slugline)
+          .replace(/{{goal}}/g, scene.narrative_goal)
+          .replace(/{{duration}}/g, scene.estimated_duration_sec.toString());
 
-        // Use AgentManager to send message
-        const text = await agentManager.sendMessage(AgentRole.SCREENWRITER, chatSession, finalPrompt, {
-          model: modelName,
-          finalPrompt: finalPrompt,
-          dynamicPrompt: scenePromptTemplate, // Pass the raw template
-          messageId: messageId
-        });
-        const content = JSON.parse(text);
+        if (feedbackHistory.length > 0) {
+          scenePrompt += `\n\n[CRITICAL FEEDBACK FROM PREVIOUS ATTEMPT]:\n${feedbackHistory.join('\n')}\n\nPLEASE FIX THE ISSUES ABOVE.`;
+        }
 
-        logDebug('res', `Screenwriter Agent: Scene ${scene.slugline}`, { content });
+        try {
+          // INTERCEPT FOR REVIEW
+          const finalPrompt = await checkReviewMode(scenePrompt, `Screenwriter: Scene ${scene.slugline} (Attempt ${attempts})`);
 
-        trackUsage(modelName, finalPrompt.length / 4, text.length / 4);
+          const messageId = crypto.randomUUID();
+          logDebug('req', `Screenwriter Agent: Scene ${scene.slugline} (Attempt ${attempts})`, { sceneId: scene.id }, {
+            model: modelName,
+            dynamicPrompt: currentScenePrompt,
+            finalPrompt: finalPrompt,
+            agentRole: AgentRole.SCREENWRITER,
+            linkedMessageId: messageId
+          });
 
-        const newScene = {
-          ...scene,
-          script_content: {
-            lines: Array.isArray(content.lines) ? content.lines.map((l: any) => ({ ...l, id: crypto.randomUUID() })) : []
+          // Use AgentManager to send message
+          const text = await agentManager.sendMessage(AgentRole.SCREENWRITER, chatSession, finalPrompt, {
+            model: modelName,
+            finalPrompt: finalPrompt,
+            dynamicPrompt: currentScenePrompt, // Pass the raw template
+            messageId: messageId
+          });
+          const content = JSON.parse(text);
+
+          logDebug('res', `Screenwriter Agent: Scene ${scene.slugline}`, { content });
+
+          trackUsage(modelName, finalPrompt.length / 4, text.length / 4);
+
+          // --- REVIEWER AGENT LOOP ---
+          const { reviewScene } = await import('./reviewerService'); // Lazy import to avoid circular deps if any
+          const reviewResult = reviewScene(
+            { lines: content.lines || [] },
+            scene.estimated_duration_sec
+          );
+
+          // Log Reviewer Action
+          const reviewerMsgId = crypto.randomUUID();
+          const reviewerLogTitle = reviewResult.approved ? "Reviewer Agent: APPROVED" : "Reviewer Agent: REJECTED";
+
+          logDebug('info', reviewerLogTitle, {
+            targetDuration: scene.estimated_duration_sec,
+            estimatedDuration: reviewResult.estimatedDuration,
+            feedback: reviewResult.feedback,
+            details: reviewResult
+          }, {
+            agentRole: AgentRole.REVIEWER,
+            linkedMessageId: reviewerMsgId
+          });
+
+          // Inject Reviewer Message into History (Simulated)
+          agentManager.injectMessage(AgentRole.REVIEWER, {
+            id: reviewerMsgId,
+            role: 'system', // Or 'model' acting as reviewer
+            agentRole: AgentRole.REVIEWER,
+            content: reviewResult.feedback,
+            timestamp: Date.now(),
+            data: reviewResult
+          });
+
+          if (reviewResult.approved) {
+            const newScene = {
+              ...scene,
+              script_content: {
+                lines: Array.isArray(content.lines) ? content.lines.map((l: any) => ({ ...l, id: crypto.randomUUID() })) : []
+              }
+            };
+            updatedScenes.push(newScene);
+            break; // Success! Exit retry loop
+          } else {
+            // REJECTED
+            feedbackHistory.push(reviewResult.feedback);
+
+            // Inject rejection into Screenwriter's memory so it knows why it failed
+            await agentManager.sendMessage(AgentRole.SCREENWRITER, chatSession, `[SYSTEM: The previous scene was REJECTED by the Reviewer. Feedback: ${reviewResult.feedback}. Please try again.]`);
+
+            if (attempts === MAX_ATTEMPTS) {
+              console.warn(`Scene ${scene.slugline} failed after ${MAX_ATTEMPTS} attempts. Keeping last result.`);
+              // Fallback: Keep the last attempt even if rejected, to avoid crashing
+              const newScene = {
+                ...scene,
+                script_content: {
+                  lines: Array.isArray(content.lines) ? content.lines.map((l: any) => ({ ...l, id: crypto.randomUUID() })) : []
+                }
+              };
+              updatedScenes.push(newScene);
+            }
           }
-        };
 
-        updatedScenes.push(newScene);
-
-      } catch (error) {
-        console.error(`Failed to generate scene ${scene.slugline}`, error);
-        updatedScenes.push(scene); // Keep original if failed
+        } catch (error) {
+          console.error(`Failed to generate scene ${scene.slugline}`, error);
+          if (attempts === MAX_ATTEMPTS) {
+            updatedScenes.push(scene); // Keep original if failed
+          }
+        }
       }
     }
 
