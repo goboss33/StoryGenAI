@@ -626,19 +626,20 @@ COMPOSITION RULES:
         const map = new Map<string, SceneGroup>();
 
         script.forEach(shot => {
-            const gid = shot.sceneId;
+            const gid = shot.sceneId || shot.id; // Handle SceneTemplate where id is the scene id
             if (!map.has(gid)) {
                 const locAsset = assets.find(a => a.id === shot.locationAssetId);
-                const parts = shot.location.split(' - ');
-                const time = (shot.time || 'DAY').toUpperCase();
+                const locationText = shot.location || (shot as any).slugline || "UNKNOWN";
+                const parts = locationText.split(' - ');
+                const time = (shot.time || (shot as any).slugline_elements?.time || 'DAY').toUpperCase();
 
                 const group: SceneGroup = {
                     sceneId: gid,
                     locationAssetId: shot.locationAssetId,
-                    locationName: locAsset ? locAsset.name : shot.location.replace(/ - .*$/, ''),
+                    locationName: locAsset ? locAsset.name : locationText.replace(/ - .*$/, ''),
                     time: time,
-                    context: shot.sceneContext,
-                    weather: shot.weather,
+                    context: shot.sceneContext || (shot as any).synopsis || "",
+                    weather: shot.weather || "",
                     shots: []
                 };
                 map.set(gid, group);
