@@ -11,6 +11,8 @@ interface LogEntry {
     model?: string;
     dynamicPrompt?: string;
     finalPrompt?: string;
+    agentRole?: AgentRole;
+    linkedMessageId?: string;
 }
 
 interface DebugConsoleProps {
@@ -98,9 +100,27 @@ const JsonViewer: React.FC<{ data: any; level?: number; initialExpandedDepth?: n
     );
 };
 
-const LogItem: React.FC<{ log: LogEntry }> = ({ log }) => {
+const HighlightVariables: React.FC<{ text: string }> = ({ text }) => {
+    const parts = text.split(/(\{\{.*?\}\})/g);
+    return (
+        <span>
+            {parts.map((part, i) => {
+                if (part.startsWith('{{') && part.endsWith('}}')) {
+                    return (
+                        <span key={i} className="text-amber-400 font-bold">
+                            {part}
+                        </span>
+                    );
+                }
+                return <span key={i}>{part}</span>;
+            })}
+        </span>
+    );
+};
+
+const LogItem: React.FC<{ log: LogEntry; isSummary?: boolean; onClick?: () => void }> = ({ log, isSummary = false, onClick }) => {
     const [showDynamic, setShowDynamic] = useState(false);
-    const [isExpanded, setIsExpanded] = useState(true); // Container expansion
+    const [isExpanded, setIsExpanded] = useState(!isSummary); // Default collapsed in summary mode
     const [jsonDepth, setJsonDepth] = useState(1); // Default depth 1
     const [jsonKey, setJsonKey] = useState(0); // To force re-render for expand/collapse all
 
@@ -120,9 +140,13 @@ const LogItem: React.FC<{ log: LogEntry }> = ({ log }) => {
 
     const hasPrompts = !!log.dynamicPrompt || !!log.finalPrompt;
     const displayContent = showDynamic ? log.dynamicPrompt : log.finalPrompt;
+    const isClickable = isSummary && !!log.linkedMessageId;
 
     return (
-        <div className="flex flex-col gap-1 group border-b border-slate-800/50 pb-2 last:border-0">
+        <div
+            className={`flex flex-col gap-1 group border-b border-slate-800/50 pb-2 last:border-0 ${isClickable ? 'cursor-pointer hover:bg-slate-800/30 transition-colors rounded px-1 -mx-1' : ''}`}
+            onClick={isClickable ? onClick : undefined}
+        >
             {/* Log Header */}
             <div className="flex items-center gap-2">
                 <span className="text-slate-600 text-[10px]">{new Date(log.timestamp).toLocaleTimeString()}</span>
@@ -130,7 +154,7 @@ const LogItem: React.FC<{ log: LogEntry }> = ({ log }) => {
                     log.type === 'res' ? 'bg-emerald-900 text-emerald-300' :
                         log.type === 'error' ? 'bg-red-900 text-red-300' : 'bg-slate-800 text-slate-300'
                     }`}>{log.type}</span>
-                <span className="text-slate-300 font-bold">{log.title}</span>
+                <span className={`text-slate-300 font-bold ${isClickable ? 'group-hover:text-indigo-400 transition-colors' : ''}`}>{log.title}</span>
 
                 {/* Model Badge */}
                 {log.model && (
@@ -139,19 +163,26 @@ const LogItem: React.FC<{ log: LogEntry }> = ({ log }) => {
                     </span>
                 )}
 
+                {/* Link Icon for Clickable Logs */}
+                {isClickable && (
+                    <span className="opacity-0 group-hover:opacity-100 text-indigo-500 transition-opacity">
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                    </span>
+                )}
+
                 <div className="ml-auto flex items-center gap-2">
-                    {/* Prompt Toggle */}
-                    {hasPrompts && (
+                    {/* Prompt Toggle - HIDDEN IN SUMMARY MODE */}
+                    {!isSummary && hasPrompts && (
                         <div className="flex bg-slate-800 rounded overflow-hidden border border-slate-700">
                             <button
-                                onClick={() => setShowDynamic(true)}
+                                onClick={(e) => { e.stopPropagation(); setShowDynamic(true); }}
                                 className={`px-2 py-0.5 text-[9px] font-bold uppercase transition-colors ${showDynamic ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
                                 title="Show Dynamic Prompt (Template)"
                             >
                                 Dynamic
                             </button>
                             <button
-                                onClick={() => setShowDynamic(false)}
+                                onClick={(e) => { e.stopPropagation(); setShowDynamic(false); }}
                                 className={`px-2 py-0.5 text-[9px] font-bold uppercase transition-colors ${!showDynamic ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
                                 title="Show Final Prompt (Sent to AI)"
                             >
@@ -161,7 +192,7 @@ const LogItem: React.FC<{ log: LogEntry }> = ({ log }) => {
                     )}
 
                     <button
-                        onClick={() => copyToClipboard(JSON.stringify(log.data, null, 2))}
+                        onClick={(e) => { e.stopPropagation(); copyToClipboard(JSON.stringify(log.data, null, 2)); }}
                         className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-white transition-opacity"
                         title="Copy JSON"
                     >
@@ -170,72 +201,57 @@ const LogItem: React.FC<{ log: LogEntry }> = ({ log }) => {
                 </div>
             </div>
 
-            {/* Prompt Display (if available) */}
-            {hasPrompts && displayContent && (
+            {/* Prompt Display (if available) - HIDDEN IN SUMMARY MODE */}
+            {!isSummary && hasPrompts && displayContent && (
                 <div className="bg-slate-950 p-2 rounded border border-slate-800 text-slate-300 whitespace-pre-wrap break-words overflow-hidden select-text text-[10px] font-mono relative">
                     <div className="absolute top-1 right-1 text-[9px] text-slate-600 font-bold uppercase pointer-events-none">
                         {showDynamic ? 'TEMPLATE' : 'PAYLOAD'}
                     </div>
-                    {displayContent}
+                    {showDynamic ? <HighlightVariables text={displayContent} /> : displayContent}
                 </div>
             )}
 
-            {/* Raw Data (JSON) - Collapsible if prompt is shown */}
-            <div className={`bg-slate-950/50 p-2 rounded border border-slate-800 overflow-x-auto custom-scrollbar transition-all ${hasPrompts && !isExpanded ? 'max-h-20 opacity-70 hover:opacity-100 cursor-pointer' : ''}`}
-                onClick={() => hasPrompts && !isExpanded && setIsExpanded(true)}
-            >
-                {/* Header with Actions when Expanded */}
-                {isExpanded && (
-                    <div className="flex justify-between items-center mb-2 border-b border-slate-800/50 pb-1">
-                        <span className="text-[9px] text-slate-500 font-bold uppercase">JSON Data</span>
-                        <div className="flex gap-2">
-                            <button
-                                onClick={(e) => { e.stopPropagation(); handleExpandAll(); }}
-                                className="text-[9px] text-indigo-400 hover:text-indigo-300 uppercase font-bold hover:bg-slate-800 px-1 rounded transition-colors"
-                            >
-                                Expand All
-                            </button>
-                            <button
-                                onClick={(e) => { e.stopPropagation(); handleCollapseAll(); }}
-                                className="text-[9px] text-slate-500 hover:text-slate-300 uppercase font-bold hover:bg-slate-800 px-1 rounded transition-colors"
-                            >
-                                Collapse All
-                            </button>
+            {/* Raw Data (JSON) - Collapsible if prompt is shown, HIDDEN IN SUMMARY MODE unless expanded manually */}
+            {!isSummary && (
+                <div className={`bg-slate-950/50 p-2 rounded border border-slate-800 overflow-x-auto custom-scrollbar transition-all ${hasPrompts && !isExpanded ? 'max-h-20 opacity-70 hover:opacity-100 cursor-pointer' : ''}`}
+                    onClick={(e) => { e.stopPropagation(); hasPrompts && !isExpanded && setIsExpanded(true); }}
+                >
+                    {/* Header with Actions when Expanded */}
+                    {isExpanded && (
+                        <div className="flex justify-between items-center mb-2 border-b border-slate-800/50 pb-1">
+                            <span className="text-[9px] text-slate-500 font-bold uppercase">JSON Data</span>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); handleExpandAll(); }}
+                                    className="text-[9px] text-indigo-400 hover:text-indigo-300 uppercase font-bold hover:bg-slate-800 px-1 rounded transition-colors"
+                                >
+                                    Expand All
+                                </button>
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); handleCollapseAll(); }}
+                                    className="text-[9px] text-slate-500 hover:text-slate-300 uppercase font-bold hover:bg-slate-800 px-1 rounded transition-colors"
+                                >
+                                    Collapse All
+                                </button>
+                            </div>
                         </div>
-                    </div>
-                )}
+                    )}
 
-                {hasPrompts && !isExpanded && <div className="text-[9px] text-slate-500 mb-1 uppercase font-bold">Raw Data (Click to expand)</div>}
+                    {hasPrompts && !isExpanded && <div className="text-[9px] text-slate-500 mb-1 uppercase font-bold">Raw Data (Click to expand)</div>}
 
-                <JsonViewer data={log.data} initialExpandedDepth={jsonDepth} key={jsonKey} />
-            </div>
+                    <JsonViewer data={log.data} initialExpandedDepth={jsonDepth} key={jsonKey} />
+                </div>
+            )}
         </div>
     );
 };
 
-const HighlightVariables: React.FC<{ text: string }> = ({ text }) => {
-    const parts = text.split(/(\{\{.*?\}\})/g);
-    return (
-        <span>
-            {parts.map((part, i) => {
-                if (part.startsWith('{{') && part.endsWith('}}')) {
-                    return (
-                        <span key={i} className="text-amber-400 font-bold">
-                            {part}
-                        </span>
-                    );
-                }
-                return <span key={i}>{part}</span>;
-            })}
-        </span>
-    );
-};
-
-const AgentMessageItem: React.FC<{ message: AgentMessage }> = ({ message }) => {
+const AgentMessageItem: React.FC<{ message: AgentMessage; isHighlighted?: boolean }> = ({ message, isHighlighted }) => {
     const isUser = message.role === 'user';
     const isSystem = message.role === 'system';
     const [showDynamic, setShowDynamic] = useState(false);
     const [isExpanded, setIsExpanded] = useState(true);
+    const itemRef = useRef<HTMLDivElement>(null);
 
     const hasPrompts = !!message.dynamicPrompt || !!message.finalPrompt;
     const displayContent = showDynamic ? message.dynamicPrompt : message.finalPrompt;
@@ -249,11 +265,21 @@ const AgentMessageItem: React.FC<{ message: AgentMessage }> = ({ message }) => {
         navigator.clipboard.writeText(text);
     };
 
+    // Auto-scroll if highlighted
+    useEffect(() => {
+        if (isHighlighted && itemRef.current) {
+            itemRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }, [isHighlighted]);
+
     return (
-        <div className={`flex flex-col gap-1 p-2 rounded border ${isSystem ? 'bg-slate-900 border-slate-700' :
-            isUser ? 'bg-slate-800/50 border-slate-700 mr-8' : // User = Parent (Full width or slight margin right)
-                'bg-indigo-900/10 border-indigo-900/30 ml-8'   // Model = Child (Indented left)
-            }`}>
+        <div
+            ref={itemRef}
+            className={`flex flex-col gap-1 p-2 rounded border transition-colors duration-500 ${isSystem ? 'bg-slate-900 border-slate-700' :
+                isUser ? 'bg-slate-800/50 border-slate-700 mr-8' : // User = Parent (Full width or slight margin right)
+                    'bg-indigo-900/10 border-indigo-900/30 ml-8'   // Model = Child (Indented left)
+                } ${isHighlighted ? 'ring-2 ring-amber-500 shadow-lg shadow-amber-900/20' : ''}`}
+        >
             <div className="flex items-center gap-2 mb-1">
                 <span className={`text-[9px] font-bold uppercase px-1.5 rounded ${isSystem ? 'bg-slate-700 text-slate-300' :
                     isUser ? 'bg-emerald-900 text-emerald-300' :
@@ -261,7 +287,7 @@ const AgentMessageItem: React.FC<{ message: AgentMessage }> = ({ message }) => {
                     }`}>
                     {message.role}
                 </span>
-                <span className="text-[9px] text-slate-500">{new Date(message.timestamp).toLocaleTimeString()}</span>
+                <span className="text-slate-500 text-[9px]">{new Date(message.timestamp).toLocaleTimeString()}</span>
 
                 {/* Model Badge */}
                 {message.model && (
@@ -351,6 +377,7 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
         [AgentRole.DIRECTOR]: [],
         [AgentRole.SCREENWRITER]: []
     });
+    const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
 
     // Subscribe to Agent Messages & Load History
     useEffect(() => {
@@ -376,12 +403,27 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
         }
     }, [pendingRequest]);
 
-    // Auto-scroll to bottom
+    // Auto-scroll to bottom (only if NOT highlighting a specific message)
     useEffect(() => {
-        if (isOpen && logEndRef.current) {
+        if (isOpen && logEndRef.current && !highlightedMessageId) {
             logEndRef.current.scrollIntoView({ behavior: 'smooth' });
         }
-    }, [logs, isOpen, activeTab, agentMessages]);
+    }, [logs, isOpen, activeTab, agentMessages, highlightedMessageId]);
+
+    // Clear highlight after a delay
+    useEffect(() => {
+        if (highlightedMessageId) {
+            const timer = setTimeout(() => setHighlightedMessageId(null), 3000);
+            return () => clearTimeout(timer);
+        }
+    }, [highlightedMessageId]);
+
+    const handleLogClick = (log: LogEntry) => {
+        if (log.agentRole && log.linkedMessageId) {
+            setActiveTab(log.agentRole);
+            setHighlightedMessageId(log.linkedMessageId);
+        }
+    };
 
     if (!isOpen) return null;
 
@@ -495,7 +537,12 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
                             <div className="text-slate-600 italic text-center mt-12">Waiting for API activity...</div>
                         )}
                         {logs.map(log => (
-                            <LogItem key={log.id} log={log} />
+                            <LogItem
+                                key={log.id}
+                                log={log}
+                                isSummary={true}
+                                onClick={() => handleLogClick(log)}
+                            />
                         ))}
                     </>
                 ) : (
@@ -504,7 +551,11 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
                             <div className="text-slate-600 italic text-center mt-12">No history for this agent yet...</div>
                         )}
                         {agentMessages[activeTab as AgentRole]?.map(msg => (
-                            <AgentMessageItem key={msg.id} message={msg} />
+                            <AgentMessageItem
+                                key={msg.id}
+                                message={msg}
+                                isHighlighted={msg.id === highlightedMessageId}
+                            />
                         ))}
                     </>
                 )}

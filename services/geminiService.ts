@@ -86,12 +86,12 @@ class AgentManager {
     return history;
   }
 
-  public async sendMessage(role: AgentRole, session: ChatSession, text: string, metadata?: { model?: string; dynamicPrompt?: string; finalPrompt?: string; data?: any }): Promise<string> {
+  public async sendMessage(role: AgentRole, session: ChatSession, text: string, metadata?: { model?: string; dynamicPrompt?: string; finalPrompt?: string; data?: any; messageId?: string }): Promise<string> {
     console.log(`[AgentManager ${this.id}] sendMessage for ${role}: "${text.slice(0, 50)}..."`);
 
     // Log User Message
     const userMsg: AgentMessage = {
-      id: crypto.randomUUID(),
+      id: metadata?.messageId || crypto.randomUUID(),
       role: 'user',
       agentRole: role,
       content: text,
@@ -222,13 +222,15 @@ export const analyzeStoryConcept = async (
   // INTERCEPT FOR REVIEW
   const reviewedPrompt = await checkReviewMode(finalPrompt, 'Director: Generate Skeleton');
 
-  logDebug('req', 'Director Agent: Generate Skeleton', { idea }, { model: modelName, finalPrompt: reviewedPrompt });
+  const messageId = crypto.randomUUID();
+  logDebug('req', 'Director Agent: Generate Skeleton', { idea }, { model: modelName, finalPrompt: reviewedPrompt, agentRole: AgentRole.DIRECTOR, linkedMessageId: messageId });
 
   // Use AgentManager to send message (handles logging)
   const text = await agentManager.sendMessage(AgentRole.DIRECTOR, directorSession, reviewedPrompt, {
     model: modelName,
     finalPrompt: reviewedPrompt,
-    dynamicPrompt: promptTemplate // Pass the raw template
+    dynamicPrompt: promptTemplate, // Pass the raw template
+    messageId: messageId
   });
 
   trackUsage(modelName, finalPrompt.length / 4, text.length / 4);
@@ -343,13 +345,21 @@ export const generateScreenplay = async (
         // INTERCEPT FOR REVIEW
         const finalPrompt = await checkReviewMode(scenePrompt, `Screenwriter: Scene ${scene.slugline}`);
 
-        logDebug('req', `Screenwriter Agent: Scene ${scene.slugline}`, { sceneId: scene.id }, { model: modelName, dynamicPrompt: scenePromptTemplate, finalPrompt: finalPrompt });
+        const messageId = crypto.randomUUID();
+        logDebug('req', `Screenwriter Agent: Scene ${scene.slugline}`, { sceneId: scene.id }, {
+          model: modelName,
+          dynamicPrompt: scenePromptTemplate,
+          finalPrompt: finalPrompt,
+          agentRole: AgentRole.SCREENWRITER,
+          linkedMessageId: messageId
+        });
 
         // Use AgentManager to send message
         const text = await agentManager.sendMessage(AgentRole.SCREENWRITER, chatSession, finalPrompt, {
           model: modelName,
           finalPrompt: finalPrompt,
-          dynamicPrompt: scenePromptTemplate // Pass the raw template
+          dynamicPrompt: scenePromptTemplate, // Pass the raw template
+          messageId: messageId
         });
         const content = JSON.parse(text);
 
@@ -582,6 +592,8 @@ type LogListener = (log: {
   model?: string;
   dynamicPrompt?: string;
   finalPrompt?: string;
+  agentRole?: AgentRole;
+  linkedMessageId?: string;
 }) => void;
 
 let listeners: LogListener[] = [];
@@ -595,7 +607,7 @@ export const logDebug = (
   type: LogType,
   title: string,
   data: any,
-  options?: { model?: string; dynamicPrompt?: string; finalPrompt?: string }
+  options?: { model?: string; dynamicPrompt?: string; finalPrompt?: string; agentRole?: AgentRole; linkedMessageId?: string }
 ) => {
   const payload = {
     type,
