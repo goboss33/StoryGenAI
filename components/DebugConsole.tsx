@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { UsageStats, PendingRequestData, subscribeToAgentMessages, getAgentHistory } from '../services/geminiService';
+import { UsageStats, PendingRequestData, subscribeToAgentMessages, getAgentHistory, chatWithAgent } from '../services/geminiService';
 import { AgentRole, AgentMessage } from '../types';
 
 interface LogEntry {
@@ -404,6 +404,24 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
         [AgentRole.DESIGNER]: []
     });
     const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+    const [chatInput, setChatInput] = useState("");
+    const [isSending, setIsSending] = useState(false);
+
+    const handleSendMessage = async () => {
+        if (!chatInput.trim() || activeTab === 'SYSTEM') return;
+
+        const message = chatInput;
+        setChatInput(""); // Clear input immediately
+        setIsSending(true);
+
+        try {
+            await chatWithAgent(activeTab as AgentRole, message);
+        } catch (error) {
+            console.error("Failed to send message", error);
+        } finally {
+            setIsSending(false);
+        }
+    };
 
     // Subscribe to Agent Messages & Load History
     useEffect(() => {
@@ -595,6 +613,31 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
                 )}
                 <div ref={logEndRef}></div>
             </div>
+
+            {/* CHAT INPUT AREA (Only for Agents) */}
+            {activeTab !== 'SYSTEM' && (
+                <div className="p-3 bg-slate-950 border-t border-slate-800 flex gap-2 flex-shrink-0">
+                    <textarea
+                        value={chatInput}
+                        onChange={(e) => setChatInput(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault();
+                                handleSendMessage();
+                            }
+                        }}
+                        placeholder={`Message ${activeTab}...`}
+                        className="flex-1 bg-slate-900 border border-slate-700 rounded p-2 text-xs text-slate-300 focus:outline-none focus:border-indigo-500 resize-none h-10 custom-scrollbar"
+                    />
+                    <button
+                        onClick={handleSendMessage}
+                        disabled={isSending || !chatInput.trim()}
+                        className="px-4 rounded bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold uppercase transition-colors"
+                    >
+                        {isSending ? '...' : 'Send'}
+                    </button>
+                </div>
+            )}
 
             {/* REVIEW MODE OVERLAY */}
             {pendingRequest && (

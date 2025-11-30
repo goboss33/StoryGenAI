@@ -92,6 +92,10 @@ class AgentManager {
     return history;
   }
 
+  public getExistingAgent(role: AgentRole): ChatSession | undefined {
+    return this.agents.get(role);
+  }
+
   public async sendMessage(role: AgentRole, session: ChatSession, text: string, metadata?: { model?: string; dynamicPrompt?: string; finalPrompt?: string; data?: any; messageId?: string }): Promise<string> {
     console.log(`[AgentManager ${this.id}] sendMessage for ${role}: "${text.slice(0, 50)}..."`);
 
@@ -155,6 +159,20 @@ export const subscribeToAgentMessages = (listener: (role: AgentRole, message: Ag
 
 export const getAgentHistory = (role: AgentRole) => {
   return AgentManager.getInstance().getHistory(role);
+};
+
+export const chatWithAgent = async (role: AgentRole, message: string): Promise<string> => {
+  const manager = AgentManager.getInstance();
+  let session = manager.getExistingAgent(role);
+
+  if (!session) {
+    // Create a generic session if not found
+    const modelName = "gemini-2.0-flash-exp";
+    const model = genAI.getGenerativeModel({ model: modelName });
+    session = manager.getAgent(role, model, `You are the ${role}. Waiting for project context...`);
+  }
+
+  return manager.sendMessage(role, session, message);
 };
 
 // --- AGENTIC WORKFLOW: STEP 1 - SKELETON GENERATION (DIRECTOR AGENT) ---
