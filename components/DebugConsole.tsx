@@ -120,7 +120,7 @@ const HighlightVariables: React.FC<{ text: string }> = ({ text }) => {
 
 const LogItem: React.FC<{ log: LogEntry; isSummary?: boolean; onClick?: () => void }> = ({ log, isSummary = false, onClick }) => {
     const [showDynamic, setShowDynamic] = useState(false);
-    const [isExpanded, setIsExpanded] = useState(!isSummary); // Default collapsed in summary mode
+    const [isExpanded, setIsExpanded] = useState(false); // Default collapsed
     const [jsonDepth, setJsonDepth] = useState(1); // Default depth 1
     const [jsonKey, setJsonKey] = useState(0); // To force re-render for expand/collapse all
 
@@ -138,23 +138,40 @@ const LogItem: React.FC<{ log: LogEntry; isSummary?: boolean; onClick?: () => vo
         setJsonKey(prev => prev + 1);
     };
 
+    // Determine Icon
+    const getIcon = () => {
+        if (log.agentRole === AgentRole.DIRECTOR || log.title.includes("Director")) return "🎬";
+        if (log.agentRole === AgentRole.SCREENWRITER || log.title.includes("Screenwriter")) return "✍️";
+        if (log.agentRole === AgentRole.REVIEWER || log.title.includes("Reviewer")) return "⚖️";
+        if (log.agentRole === AgentRole.DESIGNER || log.title.includes("Designer")) return "🎨";
+        return null;
+    };
+    const icon = getIcon();
+
     const hasPrompts = !!log.dynamicPrompt || !!log.finalPrompt;
     const displayContent = showDynamic ? log.dynamicPrompt : log.finalPrompt;
     const isClickable = isSummary && !!log.linkedMessageId;
 
+    // In summary mode, we only show details if expanded
+    const showDetails = !isSummary || isExpanded;
+
     return (
         <div
             className={`flex flex-col gap-1 group border-b border-slate-800/50 pb-2 last:border-0 ${isClickable ? 'cursor-pointer hover:bg-slate-800/30 transition-colors rounded px-1 -mx-1' : ''}`}
-            onClick={isClickable ? onClick : undefined}
+            onClick={isClickable ? onClick : () => isSummary && setIsExpanded(!isExpanded)}
         >
             {/* Log Header */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 cursor-pointer">
                 <span className="text-slate-600 text-[10px]">{new Date(log.timestamp).toLocaleTimeString()}</span>
                 <span className={`px-1.5 rounded-sm font-bold text-[9px] uppercase ${log.type === 'req' ? 'bg-blue-900 text-blue-300' :
                     log.type === 'res' ? 'bg-emerald-900 text-emerald-300' :
                         log.type === 'error' ? 'bg-red-900 text-red-300' : 'bg-slate-800 text-slate-300'
                     }`}>{log.type}</span>
-                <span className={`text-slate-300 font-bold ${isClickable ? 'group-hover:text-indigo-400 transition-colors' : ''}`}>{log.title}</span>
+
+                <span className={`text-slate-300 font-bold flex items-center gap-2 ${isClickable ? 'group-hover:text-indigo-400 transition-colors' : ''}`}>
+                    {icon && <span>{icon}</span>}
+                    {log.title}
+                </span>
 
                 {/* Model Badge */}
                 {log.model && (
@@ -171,8 +188,15 @@ const LogItem: React.FC<{ log: LogEntry; isSummary?: boolean; onClick?: () => vo
                 )}
 
                 <div className="ml-auto flex items-center gap-2">
-                    {/* Prompt Toggle - HIDDEN IN SUMMARY MODE */}
-                    {!isSummary && hasPrompts && (
+                    {/* Expand/Collapse Toggle for Summary Mode */}
+                    {isSummary && (
+                        <span className="text-slate-600 text-[10px]">
+                            {isExpanded ? '▼' : '▶'}
+                        </span>
+                    )}
+
+                    {/* Prompt Toggle - HIDDEN IN SUMMARY MODE UNLESS EXPANDED */}
+                    {showDetails && hasPrompts && (
                         <div className="flex bg-slate-800 rounded overflow-hidden border border-slate-700">
                             <button
                                 onClick={(e) => { e.stopPropagation(); setShowDynamic(true); }}
@@ -201,8 +225,8 @@ const LogItem: React.FC<{ log: LogEntry; isSummary?: boolean; onClick?: () => vo
                 </div>
             </div>
 
-            {/* Prompt Display (if available) - HIDDEN IN SUMMARY MODE */}
-            {!isSummary && hasPrompts && displayContent && (
+            {/* Prompt Display (if available) */}
+            {showDetails && hasPrompts && displayContent && (
                 <div className="bg-slate-950 p-2 rounded border border-slate-800 text-slate-300 whitespace-pre-wrap break-words overflow-hidden select-text text-[10px] font-mono relative">
                     <div className="absolute top-1 right-1 text-[9px] text-slate-600 font-bold uppercase pointer-events-none">
                         {showDynamic ? 'TEMPLATE' : 'PAYLOAD'}
@@ -211,8 +235,8 @@ const LogItem: React.FC<{ log: LogEntry; isSummary?: boolean; onClick?: () => vo
                 </div>
             )}
 
-            {/* Raw Data (JSON) - Collapsible if prompt is shown, Always visible now (even in summary) */}
-            {(true) && (
+            {/* Raw Data (JSON) */}
+            {showDetails && (
                 <div className={`bg-slate-950/50 p-2 rounded border border-slate-800 overflow-x-auto custom-scrollbar transition-all ${hasPrompts && !isExpanded ? 'max-h-20 opacity-70 hover:opacity-100 cursor-pointer' : ''}`}
                     onClick={(e) => { e.stopPropagation(); hasPrompts && !isExpanded && setIsExpanded(true); }}
                 >
