@@ -92,3 +92,68 @@ const pollPrediction = async (url: string, headers: any): Promise<{ localUri: st
     }
     throw new Error("Generation timed out");
 };
+
+export const generateReplicateImage = async (
+    prompt: string,
+    aspectRatio: AspectRatio
+): Promise<string> => {
+    if (!REPLICATE_API_TOKEN) {
+        throw new Error("Replicate API Token is missing.");
+    }
+
+    // Model: black-forest-labs/flux-schnell
+    const url = "/api/replicate/v1/models/black-forest-labs/flux-schnell/predictions";
+
+    const headers = {
+        "Authorization": `Bearer ${REPLICATE_API_TOKEN}`,
+        "Content-Type": "application/json",
+        "Prefer": "wait"
+    };
+
+    // Map AspectRatio to Flux format if needed, or just use string
+    // Flux Schnell supports: "1:1", "16:9", "21:9", "3:2", "2:3", "4:5", "5:4", "3:4", "4:3", "9:16", "9:21"
+    let ar = aspectRatio as string;
+    if (ar === '2.35:1') ar = '21:9'; // Approximate
+
+    const body = {
+        input: {
+            prompt: prompt,
+            aspect_ratio: ar,
+            go_fast: true,
+            megapixels: "1"
+        }
+    };
+
+    console.log("Generating image with Replicate (flux-schnell)...");
+
+    try {
+        const response = await fetch(url, {
+            method: "POST",
+            headers: headers,
+            body: JSON.stringify(body)
+        });
+
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(`Replicate API Error: ${err.detail || response.statusText}`);
+        }
+
+        const prediction = await response.json();
+
+        if (prediction.status === "succeeded") {
+            // Flux output is usually a list of URLs
+            return prediction.output[0];
+        } else if (prediction.status === "failed") {
+            throw new Error(`Generation failed: ${prediction.error}`);
+        } else {
+            // If not finished immediately (should be fast with 'prefer: wait'), poll
+            const pollResult = await pollPrediction(prediction.urls.get, headers);
+            const output = pollResult.remoteUri;
+            return Array.isArray(output) ? output[0] : output;
+        }
+
+    } catch (error: any) {
+        console.error("Replicate Image Generation Failed:", error);
+        throw error;
+    }
+};

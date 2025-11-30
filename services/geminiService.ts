@@ -1,7 +1,13 @@
 import { GoogleGenerativeAI, ChatSession } from "@google/generative-ai";
 import { Scene, Asset, AssetType, Pacing, RefineQuestion, ProjectBackbone, AssetChangeAnalysis, SceneTemplate, AgentRole, AgentMessage } from "../types";
+import { generateReplicateImage } from './replicateService';
 
-// ... (existing code)
+const API_KEY = import.meta.env.VITE_GEMINI_API_KEY || (process.env.GEMINI_API_KEY as string);
+if (!API_KEY) {
+  console.warn("Missing VITE_GEMINI_API_KEY in .env.local");
+}
+
+const genAI = new GoogleGenerativeAI(API_KEY || "MISSING_KEY");
 
 // --- AGENT MANAGER ---
 class AgentManager {
@@ -127,22 +133,27 @@ class AgentManager {
       data: parsedData
     };
     this.addMessageToHistory(role, modelMsg);
-    this.notifyListeners(role, modelMsg);
-
     return responseText;
   }
+
+  public reset() {
+    console.log(`[AgentManager ${this.id}] Resetting all agents`);
+    this.agents.clear();
+    this.messageHistory.clear();
+    // Notify listeners of reset if needed, or just let them handle empty history
+  }
 }
+
+export const injectAgentMessage = (role: AgentRole, message: AgentMessage) => {
+  AgentManager.getInstance().injectMessage(role, message);
+};
 
 export const subscribeToAgentMessages = (listener: (role: AgentRole, message: AgentMessage) => void) => {
   return AgentManager.getInstance().subscribe(listener);
 };
 
-export const getAgentHistory = (role: AgentRole): AgentMessage[] => {
+export const getAgentHistory = (role: AgentRole) => {
   return AgentManager.getInstance().getHistory(role);
-};
-
-export const injectAgentMessage = (role: AgentRole, message: AgentMessage) => {
-  AgentManager.getInstance().injectMessage(role, message);
 };
 
 // --- AGENTIC WORKFLOW: STEP 1 - SKELETON GENERATION (DIRECTOR AGENT) ---
@@ -462,26 +473,7 @@ export const generateScreenplay = async (
   }
 };
 
-// Define SchemaType locally to avoid import errors with older SDK versions
-const SchemaType = {
-  STRING: "STRING" as const,
-  NUMBER: "NUMBER" as const,
-  INTEGER: "INTEGER" as const,
-  BOOLEAN: "BOOLEAN" as const,
-  ARRAY: "ARRAY" as const,
-  OBJECT: "OBJECT" as const
-};
 
-// Robust API Key Retrieval
-const apiKey = import.meta.env.VITE_GEMINI_API_KEY ||
-  (process.env.GEMINI_API_KEY as string) ||
-  (process.env.API_KEY as string);
-
-if (!apiKey) {
-  console.error("CRITICAL: GEMINI_API_KEY is missing. Please check .env.local");
-}
-
-const genAI = new GoogleGenerativeAI(apiKey || "MISSING_KEY");
 
 // --- REVIEW MODE INFRASTRUCTURE ---
 let isReviewMode = false;
@@ -818,7 +810,7 @@ export const generateAudioScript = async (
 export const populateScriptAudio = async (
   project: import("../types").ProjectBackbone
 ): Promise<import("../types").ProjectBackbone> => {
-  if (!apiKey || apiKey === "MISSING_KEY") throw new Error("API Key is missing.");
+  if (!API_KEY || API_KEY === "MISSING_KEY") throw new Error("API Key is missing.");
 
   try {
     // 1. Serialize Visual Context for the AI
@@ -1334,3 +1326,78 @@ export const outpaintImage = async (imageUri: string, prompt: string, direction:
 };
 
 
+
+// --- 15. Generate Asset Image (Designer Agent) ---
+export const generateAssetImage = async (
+  type: 'character' | 'location',
+  data: import("../types").CharacterTemplate | import("../types").LocationTemplate,
+  projectContext: { title: string; tone: string; style: string }
+): Promise<string> => {
+  const agentManager = AgentManager.getInstance();
+  const modelName = "gemini-3-pro-preview";
+  const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "application/json" } });
+
+  // 1. Initialize Designer Agent
+  const designerSystemPrompt = `
+    Role: Professional Visual Designer & Concept Artist.
+    Task: You create detailed, photorealistic image prompts for AI image generators (Flux/Midjourney).
+    Context: Working on a video project titled "${projectContext.title}".
+    Style: ${projectContext.style}.
+    Tone: ${projectContext.tone}.
+
+    INSTRUCTIONS:
+    1. Analyze the provided asset (Character or Location).
+    2. Write a single, highly detailed image prompt.
+    3. Focus on lighting, texture, composition, and mood.
+    4. OUTPUT JSON ONLY: { "prompt": "your detailed prompt here" }
+  `;
+
+  // We use a stateless approach for the designer for now, or we could persist it.
+  // Let's persist it to keep history of generated assets.
+  const chatSession = agentManager.getAgent(AgentRole.DESIGNER, model, designerSystemPrompt, {
+    model: modelName,
+    dynamicPrompt: designerSystemPrompt,
+    finalPrompt: designerSystemPrompt
+  });
+
+  // 2. Construct Request
+  let userRequest = "";
+  if (type === 'character') {
+    const char = data as import("../types").CharacterTemplate;
+    userRequest = `Create a portrait prompt for CHARACTER: ${char.name}. Role: ${char.role}. Description: ${char.visual_seed.description}`;
+  } else {
+    const loc = data as import("../types").LocationTemplate;
+    userRequest = `Create a wide shot prompt for LOCATION: ${loc.name}. Type: ${loc.interior_exterior}. Description: ${loc.environment_prompt}`;
+  }
+
+  // 3. Get Prompt from Designer
+  const messageId = crypto.randomUUID();
+  logDebug('req', `Designer Agent: Generating prompt for ${data.name}`, { type }, {
+    model: modelName,
+    agentRole: AgentRole.DESIGNER,
+    linkedMessageId: messageId
+  });
+
+  const responseText = await agentManager.sendMessage(AgentRole.DESIGNER, chatSession, userRequest, {
+    model: modelName,
+    messageId: messageId
+  });
+
+  const responseJson = JSON.parse(responseText);
+  const imagePrompt = responseJson.prompt;
+
+  logDebug('info', `Designer Agent: Prompt Generated`, { prompt: imagePrompt });
+
+  // 4. Generate Image via Replicate
+  // Aspect Ratio: 1:1 for Characters (Profile), 16:9 for Locations (Cinematic)
+  const aspectRatio = type === 'character' ? '1:1' : '16:9';
+
+  // Add style keywords to ensure consistency
+  const finalImagePrompt = `${imagePrompt}, ${projectContext.style}, high quality, 8k`;
+
+  const imageUrl = await generateReplicateImage(finalImagePrompt, aspectRatio);
+
+  logDebug('res', `Designer Agent: Image Generated`, { imageUrl });
+
+  return imageUrl;
+};

@@ -146,7 +146,7 @@ export interface ElevenLabsVoice {
   labels?: Record<string, string>;
 }
 
-export type AspectRatio = '16:9' | '9:16';
+export type AspectRatio = '16:9' | '9:16' | '1:1';
 
 export const PRESET_STYLES = [
   { name: 'Cinematic Realistic', prompt: 'Cinematic lighting, photorealistic, 8k, highly detailed, movie still', image: 'https://placehold.co/320x180/1a1a1a/ffffff?text=Cinematic' },
@@ -181,7 +181,8 @@ export const TARGET_AUDIENCES = [
 export enum AgentRole {
   DIRECTOR = 'Director',
   SCREENWRITER = 'Screenwriter',
-  REVIEWER = 'Reviewer'
+  REVIEWER = 'Reviewer',
+  DESIGNER = 'Designer'
 }
 
 export interface AgentMessage {
@@ -262,6 +263,7 @@ export interface LocationTemplate {
   name: string;
   environment_prompt: string;
   interior_exterior: 'INT' | 'EXT';
+  ref_image_url?: string;
 }
 
 export interface ShotTemplate {
