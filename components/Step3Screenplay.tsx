@@ -3,7 +3,7 @@ import ScriptEditorInput from './ScriptEditorInput';
 
 import { ProjectBackbone, SceneTemplate, ScriptLine, CharacterTemplate } from '../types';
 import { generateScreenplay } from '../services/geminiService';
-import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragOverlay } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
@@ -41,8 +41,8 @@ interface SortableScriptLineProps {
     key?: any;
 }
 
-// Sortable Item Component (Moved outside to prevent re-renders losing focus)
-const SortableScriptLine = ({
+// Presentation Component
+const ScriptLineItem = ({
     line,
     index,
     sceneIndex,
@@ -52,17 +52,21 @@ const SortableScriptLine = ({
     handleLineChange,
     removeLine,
     getCharacterColor,
-    characters
-}: SortableScriptLineProps) => {
-    const {
-        attributes,
-        listeners,
-        setNodeRef,
-        transform,
-        transition,
-        isDragging
-    } = useSortable({ id: line.id });
-
+    characters,
+    style,
+    attributes,
+    listeners,
+    setNodeRef,
+    isDragging,
+    isOverlay
+}: SortableScriptLineProps & {
+    style?: React.CSSProperties;
+    attributes?: any;
+    listeners?: any;
+    setNodeRef?: (node: HTMLElement | null) => void;
+    isDragging?: boolean;
+    isOverlay?: boolean;
+}) => {
     const [showMenu, setShowMenu] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
 
@@ -80,13 +84,6 @@ const SortableScriptLine = ({
             document.removeEventListener('mousedown', handleClickOutside);
         };
     }, [showMenu]);
-
-    const style = {
-        transform: CSS.Transform.toString(transform),
-        transition,
-        zIndex: isDragging ? 50 : (showMenu ? 40 : 'auto'),
-        position: isDragging ? 'relative' as const : 'static' as const,
-    };
 
     // Skip rendering inline sluglines as they are now in the header
     if (line.type === 'slugline') return null;
@@ -112,10 +109,16 @@ const SortableScriptLine = ({
         setShowMenu(false);
     };
 
+    const finalStyle = {
+        ...style,
+        zIndex: isDragging ? 50 : (showMenu ? 40 : 'auto'),
+        position: isDragging ? 'relative' as const : 'static' as const,
+    };
+
     return (
         <div
             ref={setNodeRef}
-            style={style}
+            style={finalStyle}
             className={`group relative flex items-start gap-4 py-2 px-4 -mx-4 rounded-lg transition-all cursor-text hover:bg-slate-50 ${isDragging ? 'opacity-50 bg-slate-100' : ''}`}
             onClick={(e) => {
                 e.stopPropagation();
@@ -254,7 +257,7 @@ const SortableScriptLine = ({
             </div>
 
             {/* Right Side Actions (Delete & Drag) - Visible ONLY on Active */}
-            <div className={`flex items-center gap-1 p-1 rounded-md bg-white shadow-sm border border-slate-100 transition-all self-start mt-1 ${isActive ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+            <div className={`flex items-center gap-1 p-1 rounded-md bg-white shadow-sm border border-slate-100 transition-all self-start mt-1 ${isActive || isOverlay ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
                 {/* Delete Button */}
                 <button
                     onClick={(e) => { e.stopPropagation(); removeLine(sceneIndex, line.id); }}
@@ -278,12 +281,41 @@ const SortableScriptLine = ({
     );
 };
 
+// Sortable Wrapper
+const SortableScriptLine = (props: SortableScriptLineProps) => {
+    const {
+        attributes,
+        listeners,
+        setNodeRef,
+        transform,
+        transition,
+        isDragging
+    } = useSortable({ id: props.line.id });
+
+    const style = {
+        transform: CSS.Translate.toString(transform),
+        transition: isDragging ? undefined : transition,
+    };
+
+    return (
+        <ScriptLineItem
+            {...props}
+            style={style}
+            attributes={attributes}
+            listeners={listeners}
+            setNodeRef={setNodeRef}
+            isDragging={isDragging}
+        />
+    );
+};
+
 const Step3Screenplay: React.FC<Props> = ({
     project, onUpdate, onBack, onNext
 }) => {
     const [loading, setLoading] = useState(false);
     const [activeLineId, setActiveLineId] = useState<string | null>(null);
     const [activeSceneIndex, setActiveSceneIndex] = useState<number | null>(null);
+    const [activeDragLine, setActiveDragLine] = useState<ScriptLine | null>(null);
 
     // Derived state for the active line
     const activeLine = activeLineId && activeSceneIndex !== null && project
@@ -488,16 +520,16 @@ const Step3Screenplay: React.FC<Props> = ({
                         <textarea
                             value={activeScene.synopsis || ''}
                             onChange={(e) => updateSceneProperty(activeSceneIndex!, 'synopsis', e.target.value)}
-                            className="w-full p-3 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none text-sm min-h-[100px]"
-                            placeholder="Brief description of the scene..."
+                            className="w-full p-3 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none h-32 resize-none"
+                            placeholder="Scene synopsis..."
                         />
                     </div>
 
                     <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Duration (seconds)</label>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Estimated Duration (sec)</label>
                         <input
                             type="number"
-                            value={activeScene.estimated_duration_sec}
+                            value={activeScene.estimated_duration_sec || 0}
                             onChange={(e) => updateSceneProperty(activeSceneIndex!, 'estimated_duration_sec', parseInt(e.target.value))}
                             className="w-full p-3 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
                         />
@@ -594,9 +626,9 @@ const Step3Screenplay: React.FC<Props> = ({
     };
 
     const renderScene = (scene: SceneTemplate, index: number) => {
+        const isSelected = activeSceneIndex === index;
         const lines = scene.script_content?.lines || [];
         const hasScript = lines.length > 0;
-        const isSelected = activeSceneIndex === index && !activeLineId;
 
         // Construct slugline display
         const sluglineText = scene.slugline_elements
@@ -651,7 +683,11 @@ const Step3Screenplay: React.FC<Props> = ({
                             <DndContext
                                 sensors={sensors}
                                 collisionDetection={closestCenter}
-                                onDragEnd={(e) => handleDragEnd(e, index)}
+                                onDragStart={(e) => setActiveDragLine(lines.find(l => l.id === e.active.id) || null)}
+                                onDragEnd={(e) => {
+                                    handleDragEnd(e, index);
+                                    setActiveDragLine(null);
+                                }}
                             >
                                 <SortableContext
                                     items={lines.map(l => l.id)}
@@ -673,6 +709,25 @@ const Step3Screenplay: React.FC<Props> = ({
                                         />
                                     ))}
                                 </SortableContext>
+                                <DragOverlay>
+                                    {activeDragLine ? (
+                                        <div className="opacity-90 rotate-2 scale-105 cursor-grabbing pointer-events-none">
+                                            <ScriptLineItem
+                                                line={activeDragLine}
+                                                index={0}
+                                                sceneIndex={index}
+                                                activeLineId={activeDragLine.id}
+                                                setActiveLineId={() => { }}
+                                                setActiveSceneIndex={() => { }}
+                                                handleLineChange={() => { }}
+                                                removeLine={() => { }}
+                                                getCharacterColor={getCharacterColor}
+                                                characters={project.database.characters}
+                                                isOverlay={true}
+                                            />
+                                        </div>
+                                    ) : null}
+                                </DragOverlay>
                             </DndContext>
                         </div>
                     )}
