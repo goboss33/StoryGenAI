@@ -12,6 +12,156 @@ interface Props {
     onNext: () => void;
 }
 
+// --- ICONS ---
+const Icons = {
+    Slugline: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>,
+    Action: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>,
+    Dialogue: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>,
+    Parenthetical: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>,
+    Transition: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" /></svg>,
+    Clock: () => <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
+    Trash: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>,
+    Edit: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+};
+
+interface SortableScriptLineProps {
+    line: ScriptLine;
+    index: number;
+    sceneIndex: number;
+    activeLineId: string | null;
+    setActiveLineId: (id: string | null) => void;
+    setActiveSceneIndex: (index: number | null) => void;
+    handleLineChange: (sceneIndex: number, lineId: string, field: keyof ScriptLine, value: any) => void;
+    removeLine: (sceneIndex: number, lineId: string) => void;
+    getCharacterColor: (name?: string) => string;
+    key?: any;
+}
+
+// Sortable Item Component (Moved outside to prevent re-renders losing focus)
+const SortableScriptLine = ({
+    line,
+    index,
+    sceneIndex,
+    activeLineId,
+    setActiveLineId,
+    setActiveSceneIndex,
+    handleLineChange,
+    removeLine,
+    getCharacterColor
+}: SortableScriptLineProps) => {
+    const {
+        attributes,
+        listeners,
+        setNodeRef,
+        transform,
+        transition,
+        isDragging
+    } = useSortable({ id: line.id });
+
+    const style = {
+        transform: CSS.Transform.toString(transform),
+        transition,
+        zIndex: isDragging ? 50 : 'auto',
+        position: isDragging ? 'relative' as const : 'static' as const,
+    };
+
+    // Skip rendering inline sluglines as they are now in the header
+    if (line.type === 'slugline') return null;
+
+    const isActive = activeLineId === line.id;
+    const isDialogue = line.type === 'dialogue';
+    const characterColor = isDialogue ? getCharacterColor(line.speaker) : 'bg-transparent';
+    const highlightClass = isActive && isDialogue ? characterColor : 'bg-transparent';
+
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+    useEffect(() => {
+        if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+            textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+        }
+    }, [line.content]);
+
+    return (
+        <div
+            ref={setNodeRef}
+            style={style}
+            className={`group relative flex items-start gap-4 py-1 px-4 -mx-4 rounded-lg transition-all cursor-text ${isActive ? '' : 'hover:bg-slate-50'} ${isDragging ? 'opacity-50 bg-slate-100' : ''}`}
+            onClick={(e) => {
+                e.stopPropagation();
+                setActiveLineId(line.id);
+                setActiveSceneIndex(sceneIndex);
+            }}
+        >
+            {/* Icon Column (Left) - Drag Handle */}
+            <div
+                className="w-8 flex-shrink-0 flex flex-col items-center pt-1.5 opacity-50 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing"
+                {...attributes}
+                {...listeners}
+            >
+                <div className="w-6 h-6 rounded-full border border-slate-200 flex items-center justify-center text-[10px] text-slate-400 bg-white shadow-sm hover:border-indigo-300 hover:text-indigo-500 transition-colors">
+                    {line.type === 'action' && 'A'}
+                    {line.type === 'dialogue' && 'D'}
+                    {line.type === 'parenthetical' && 'P'}
+                    {line.type === 'transition' && 'T'}
+                </div>
+            </div>
+
+            {/* Content Column (Text) */}
+            <div className="flex-1 min-w-0 font-mono text-base leading-relaxed relative">
+
+                {/* Character Name (for Dialogue) */}
+                {line.type === 'dialogue' && (
+                    <div className="mb-0.5 font-bold text-slate-700 uppercase text-sm tracking-wide select-none">
+                        {line.speaker || 'CHARACTER'}
+                    </div>
+                )}
+
+                {/* Editable Text Area */}
+                <div className={`relative rounded px-1 -mx-1 ${highlightClass} transition-colors duration-200`}>
+                    {line.type === 'parenthetical' && <span className="text-slate-400 mr-1">(</span>}
+                    <textarea
+                        ref={textareaRef}
+                        value={line.content}
+                        onChange={(e) => {
+                            handleLineChange(sceneIndex, line.id, 'content', e.target.value);
+                            // Auto-resize immediately on change as well
+                            e.target.style.height = 'auto';
+                            e.target.style.height = `${e.target.scrollHeight}px`;
+                        }}
+                        className={`w-full bg-transparent outline-none resize-none overflow-hidden text-slate-800 placeholder-slate-300 ${line.type === 'parenthetical' ? 'italic text-slate-500' : ''} ${line.type === 'transition' ? 'text-right uppercase font-bold' : ''}`}
+                        placeholder={line.type === 'dialogue' ? "Dialogue..." : "Action description..."}
+                        style={{ minHeight: '1.5em' }}
+                        onClick={(e) => e.stopPropagation()}
+                        onFocus={() => {
+                            setActiveLineId(line.id);
+                            setActiveSceneIndex(sceneIndex);
+                        }}
+                        onKeyDown={(e) => {
+                            // Stop propagation of space key to prevent dnd-kit from triggering drag
+                            if (e.key === ' ') {
+                                e.stopPropagation();
+                            }
+                        }}
+                    />
+                    {line.type === 'parenthetical' && <span className="text-slate-400 ml-1">)</span>}
+                </div>
+            </div>
+
+            {/* Hover Delete Button */}
+            <div className="absolute right-2 top-1 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                <button
+                    onClick={(e) => { e.stopPropagation(); removeLine(sceneIndex, line.id); }}
+                    className="text-slate-300 hover:text-red-500 p-1"
+                    title="Delete"
+                >
+                    <Icons.Trash />
+                </button>
+            </div>
+        </div>
+    );
+};
+
 const Step3Screenplay: React.FC<Props> = ({
     project, onUpdate, onBack, onNext
 }) => {
@@ -138,18 +288,6 @@ const Step3Screenplay: React.FC<Props> = ({
             coordinateGetter: sortableKeyboardCoordinates,
         })
     );
-
-    // --- ICONS ---
-    const Icons = {
-        Slugline: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>,
-        Action: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>,
-        Dialogue: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>,
-        Parenthetical: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>,
-        Transition: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" /></svg>,
-        Clock: () => <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
-        Trash: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>,
-        Edit: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-    };
 
     const getCharacterColor = (characterName?: string) => {
         if (!characterName) return 'bg-slate-100';
@@ -339,107 +477,6 @@ const Step3Screenplay: React.FC<Props> = ({
         );
     };
 
-    // Sortable Item Component
-    const SortableScriptLine = ({ line, index, sceneIndex }: { line: ScriptLine, index: number, sceneIndex: number, key?: any }) => {
-        const {
-            attributes,
-            listeners,
-            setNodeRef,
-            transform,
-            transition,
-            isDragging
-        } = useSortable({ id: line.id });
-
-        const style = {
-            transform: CSS.Transform.toString(transform),
-            transition,
-            zIndex: isDragging ? 50 : 'auto',
-            position: isDragging ? 'relative' as const : 'static' as const,
-        };
-
-        // Skip rendering inline sluglines as they are now in the header
-        if (line.type === 'slugline') return null;
-
-        const isActive = activeLineId === line.id;
-        const isDialogue = line.type === 'dialogue';
-        const characterColor = isDialogue ? getCharacterColor(line.speaker) : 'bg-transparent';
-        const highlightClass = isActive && isDialogue ? characterColor : 'bg-transparent';
-
-        return (
-            <div
-                ref={setNodeRef}
-                style={style}
-                className={`group relative flex items-start gap-4 py-1 px-4 -mx-4 rounded-lg transition-all cursor-text ${isActive ? '' : 'hover:bg-slate-50'} ${isDragging ? 'opacity-50 bg-slate-100' : ''}`}
-                onClick={(e) => {
-                    e.stopPropagation();
-                    setActiveLineId(line.id);
-                    setActiveSceneIndex(sceneIndex);
-                }}
-            >
-                {/* Icon Column (Left) - Drag Handle */}
-                <div
-                    className="w-8 flex-shrink-0 flex flex-col items-center pt-1.5 opacity-50 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing"
-                    {...attributes}
-                    {...listeners}
-                >
-                    <div className="w-6 h-6 rounded-full border border-slate-200 flex items-center justify-center text-[10px] text-slate-400 bg-white shadow-sm hover:border-indigo-300 hover:text-indigo-500 transition-colors">
-                        {line.type === 'action' && 'A'}
-                        {line.type === 'dialogue' && 'D'}
-                        {line.type === 'parenthetical' && 'P'}
-                        {line.type === 'transition' && 'T'}
-                    </div>
-                </div>
-
-                {/* Content Column (Text) */}
-                <div className="flex-1 min-w-0 font-mono text-base leading-relaxed relative">
-
-                    {/* Character Name (for Dialogue) */}
-                    {line.type === 'dialogue' && (
-                        <div className="mb-0.5 font-bold text-slate-700 uppercase text-sm tracking-wide select-none">
-                            {line.speaker || 'CHARACTER'}
-                        </div>
-                    )}
-
-                    {/* Editable Text Area */}
-                    <div className={`relative rounded px-1 -mx-1 ${highlightClass} transition-colors duration-200`}>
-                        {line.type === 'parenthetical' && <span className="text-slate-400 mr-1">(</span>}
-                        <textarea
-                            value={line.content}
-                            onChange={(e) => handleLineChange(sceneIndex, line.id, 'content', e.target.value)}
-                            className={`w-full bg-transparent outline-none resize-none overflow-hidden text-slate-800 placeholder-slate-300 ${line.type === 'parenthetical' ? 'italic text-slate-500' : ''} ${line.type === 'transition' ? 'text-right uppercase font-bold' : ''}`}
-                            placeholder={line.type === 'dialogue' ? "Dialogue..." : "Action description..."}
-                            rows={Math.max(1, line.content.split('\n').length)}
-                            style={{ minHeight: '1.5em' }}
-                            onClick={(e) => e.stopPropagation()}
-                            onFocus={() => {
-                                setActiveLineId(line.id);
-                                setActiveSceneIndex(sceneIndex);
-                            }}
-                            onKeyDown={(e) => {
-                                // Stop propagation of space key to prevent dnd-kit from triggering drag
-                                if (e.key === ' ') {
-                                    e.stopPropagation();
-                                }
-                            }}
-                        />
-                        {line.type === 'parenthetical' && <span className="text-slate-400 ml-1">)</span>}
-                    </div>
-                </div>
-
-                {/* Hover Delete Button */}
-                <div className="absolute right-2 top-1 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-                    <button
-                        onClick={(e) => { e.stopPropagation(); removeLine(sceneIndex, line.id); }}
-                        className="text-slate-300 hover:text-red-500 p-1"
-                        title="Delete"
-                    >
-                        <Icons.Trash />
-                    </button>
-                </div>
-            </div>
-        );
-    };
-
     const renderScene = (scene: SceneTemplate, index: number) => {
         const lines = scene.script_content?.lines || [];
         const hasScript = lines.length > 0;
@@ -505,7 +542,18 @@ const Step3Screenplay: React.FC<Props> = ({
                                     strategy={verticalListSortingStrategy}
                                 >
                                     {lines.map((line, lIdx) => (
-                                        <SortableScriptLine key={line.id} line={line} index={lIdx} sceneIndex={index} />
+                                        <SortableScriptLine
+                                            key={line.id}
+                                            line={line}
+                                            index={lIdx}
+                                            sceneIndex={index}
+                                            activeLineId={activeLineId}
+                                            setActiveLineId={setActiveLineId}
+                                            setActiveSceneIndex={setActiveSceneIndex}
+                                            handleLineChange={handleLineChange}
+                                            removeLine={removeLine}
+                                            getCharacterColor={getCharacterColor}
+                                        />
                                     ))}
                                 </SortableContext>
                             </DndContext>
