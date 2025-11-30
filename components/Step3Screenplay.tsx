@@ -23,7 +23,8 @@ const Icons = {
     Transition: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" /></svg>,
     Clock: () => <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
     Trash: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>,
-    Edit: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+    Edit: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>,
+    Grip: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M8 6h.01M16 6h.01M8 12h.01M16 12h.01M8 18h.01M16 18h.01" /></svg> // 6 dots drag handle
 };
 
 interface SortableScriptLineProps {
@@ -62,10 +63,28 @@ const SortableScriptLine = ({
         isDragging
     } = useSortable({ id: line.id });
 
+    const [showMenu, setShowMenu] = useState(false);
+    const menuRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+                setShowMenu(false);
+            }
+        };
+
+        if (showMenu) {
+            document.addEventListener('mousedown', handleClickOutside);
+        }
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [showMenu]);
+
     const style = {
         transform: CSS.Transform.toString(transform),
         transition,
-        zIndex: isDragging ? 50 : 'auto',
+        zIndex: isDragging ? 50 : (showMenu ? 40 : 'auto'),
         position: isDragging ? 'relative' as const : 'static' as const,
     };
 
@@ -81,38 +100,121 @@ const SortableScriptLine = ({
     const character = isDialogue && characters ? characters.find(c => c.name.toUpperCase() === line.speaker?.toUpperCase()) : null;
     const characterImage = character?.visual_seed?.ref_image_url;
 
+    const handleTypeSelect = (type: ScriptLine['type'], speaker?: string) => {
+        handleLineChange(sceneIndex, line.id, 'type', type);
+        if (type === 'dialogue' && speaker) {
+            handleLineChange(sceneIndex, line.id, 'speaker', speaker);
+        }
+        if (type === 'action') {
+            handleLineChange(sceneIndex, line.id, 'speaker', undefined);
+            handleLineChange(sceneIndex, line.id, 'parenthetical', undefined);
+        }
+        setShowMenu(false);
+    };
+
     return (
         <div
             ref={setNodeRef}
             style={style}
-            className={`group relative flex items-start gap-4 py-1 px-4 -mx-4 rounded-lg transition-all cursor-text ${isActive ? '' : 'hover:bg-slate-50'} ${isDragging ? 'opacity-50 bg-slate-100' : ''}`}
+            className={`group relative flex items-start gap-4 py-2 px-4 -mx-4 rounded-lg transition-all cursor-text hover:bg-slate-50 ${isDragging ? 'opacity-50 bg-slate-100' : ''}`}
             onClick={(e) => {
                 e.stopPropagation();
                 setActiveLineId(line.id);
                 setActiveSceneIndex(sceneIndex);
             }}
         >
-            {/* Icon Column (Left) - Drag Handle */}
+            {/* Icon Column (Left) - Menu Trigger ONLY (No Drag) */}
             <div
-                className="w-10 flex-shrink-0 flex flex-col items-center pt-1.5 opacity-50 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing"
-                {...attributes}
-                {...listeners}
+                className="w-10 flex-shrink-0 flex flex-col items-center pt-1.5 relative"
+                ref={menuRef}
             >
-                {line.type === 'action' ? (
-                    <div className="w-8 h-8 rounded-lg border-2 border-slate-200 flex items-center justify-center text-slate-400 bg-white shadow-sm hover:border-indigo-300 hover:text-indigo-500 transition-colors">
-                        <Icons.Action />
-                    </div>
-                ) : (
-                    <div className={`w-8 h-8 rounded-full border border-slate-200 flex items-center justify-center text-xs font-bold shadow-sm hover:border-indigo-300 transition-colors overflow-hidden ${characterImage ? 'bg-white' : (isDialogue ? characterColor : 'bg-white text-slate-400')}`}>
-                        {characterImage ? (
-                            <img src={characterImage} alt={line.speaker} className="w-full h-full object-cover" />
-                        ) : (
-                            <>
-                                {line.type === 'dialogue' && 'D'}
-                                {line.type === 'parenthetical' && 'P'}
-                                {line.type === 'transition' && 'T'}
-                            </>
-                        )}
+                <div
+                    className="cursor-pointer opacity-70 group-hover:opacity-100 transition-opacity hover:scale-105 active:scale-95"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        setShowMenu(!showMenu);
+                        setActiveLineId(line.id);
+                        setActiveSceneIndex(sceneIndex);
+                    }}
+                >
+                    {line.type === 'action' ? (
+                        <div className="w-8 h-8 rounded-lg border-2 border-slate-200 flex items-center justify-center text-slate-400 bg-white shadow-sm hover:border-indigo-300 hover:text-indigo-500 transition-colors">
+                            <Icons.Action />
+                        </div>
+                    ) : (
+                        <div className={`w-8 h-8 rounded-full border border-slate-200 flex items-center justify-center text-xs font-bold shadow-sm hover:border-indigo-300 transition-colors overflow-hidden ${characterImage ? 'bg-white' : (isDialogue ? characterColor : 'bg-white text-slate-400')}`}>
+                            {characterImage ? (
+                                <img src={characterImage} alt={line.speaker} className="w-full h-full object-cover" />
+                            ) : (
+                                <>
+                                    {line.type === 'dialogue' && 'D'}
+                                    {line.type === 'parenthetical' && 'P'}
+                                    {line.type === 'transition' && 'T'}
+                                </>
+                            )}
+                        </div>
+                    )}
+                </div>
+
+                {/* Type Selection Menu */}
+                {showMenu && (
+                    <div className="absolute top-full left-0 mt-2 w-48 bg-white rounded-xl shadow-2xl border border-slate-100 z-50 flex flex-col py-1 overflow-visible ring-1 ring-black/5 animate-in fade-in zoom-in-95 duration-100 origin-top-left">
+                        <button
+                            onClick={(e) => { e.stopPropagation(); handleTypeSelect('action'); }}
+                            className="flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 hover:text-indigo-600 transition-colors text-left"
+                        >
+                            <span className="text-slate-400"><Icons.Action /></span>
+                            Action
+                        </button>
+
+                        <div className="relative group/submenu">
+                            <button
+                                className="w-full flex items-center justify-between gap-3 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 hover:text-indigo-600 transition-colors text-left"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <div className="flex items-center gap-3">
+                                    <span className="text-slate-400"><Icons.Dialogue /></span>
+                                    Dialogue
+                                </div>
+                                <svg className="w-4 h-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                            </button>
+
+                            {/* Characters Submenu */}
+                            <div className="absolute left-full top-0 ml-2 w-56 bg-white rounded-xl shadow-2xl border border-slate-100 py-1 hidden group-hover/submenu:block ring-1 ring-black/5 max-h-64 overflow-y-auto custom-scrollbar">
+                                {characters?.map(char => (
+                                    <button
+                                        key={char.id}
+                                        onClick={(e) => { e.stopPropagation(); handleTypeSelect('dialogue', char.name.toUpperCase()); }}
+                                        className="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 hover:text-indigo-600 transition-colors text-left"
+                                    >
+                                        <div className={`w-6 h-6 rounded-full flex-shrink-0 overflow-hidden flex items-center justify-center text-[10px] font-bold ${getCharacterColor(char.name)}`}>
+                                            {char.visual_seed?.ref_image_url ? (
+                                                <img src={char.visual_seed.ref_image_url} alt={char.name} className="w-full h-full object-cover" />
+                                            ) : (
+                                                char.name.charAt(0).toUpperCase()
+                                            )}
+                                        </div>
+                                        <span className="truncate">{char.name}</span>
+                                    </button>
+                                ))}
+                                <div className="h-px bg-slate-100 my-1"></div>
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); handleTypeSelect('dialogue', 'CHARACTER'); }}
+                                    className="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-500 hover:bg-slate-50 hover:text-indigo-600 transition-colors text-left italic"
+                                >
+                                    <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-[10px] text-slate-400">?</div>
+                                    New Character...
+                                </button>
+                            </div>
+                        </div>
+
+                        <button
+                            onClick={(e) => { e.stopPropagation(); handleTypeSelect('transition'); }}
+                            className="flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 hover:text-indigo-600 transition-colors text-left"
+                        >
+                            <span className="text-slate-400"><Icons.Transition /></span>
+                            Transition
+                        </button>
                     </div>
                 )}
             </div>
@@ -151,15 +253,26 @@ const SortableScriptLine = ({
                 </div>
             </div>
 
-            {/* Hover Delete Button */}
-            <div className="absolute right-2 top-1 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+            {/* Right Side Actions (Delete & Drag) - Visible ONLY on Active */}
+            <div className={`absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 transition-opacity ${isActive ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+                {/* Delete Button */}
                 <button
                     onClick={(e) => { e.stopPropagation(); removeLine(sceneIndex, line.id); }}
-                    className="text-slate-300 hover:text-red-500 p-1"
+                    className="text-slate-300 hover:text-red-500 p-1.5 rounded hover:bg-red-50 transition-colors"
                     title="Delete"
                 >
                     <Icons.Trash />
                 </button>
+
+                {/* Drag Handle */}
+                <div
+                    className="text-slate-300 hover:text-indigo-500 p-1.5 rounded hover:bg-indigo-50 cursor-grab active:cursor-grabbing transition-colors"
+                    title="Drag to reorder"
+                    {...attributes}
+                    {...listeners}
+                >
+                    <Icons.Grip />
+                </div>
             </div>
         </div>
     );
