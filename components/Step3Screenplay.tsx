@@ -381,67 +381,63 @@ const Step3Screenplay: React.FC<Props> = ({
             : scene.slugline;
 
         return (
-            <div key={scene.id} className="mb-8">
-                {/* Scene Card */}
-                <div className="bg-white shadow-sm border border-slate-200 rounded-xl overflow-hidden">
-
-                    {/* Dark Header */}
-                    <div
-                        className={`bg-slate-800 text-white px-6 py-4 cursor-pointer transition-colors ${isSelected ? 'bg-slate-700 ring-2 ring-indigo-500 ring-inset' : 'hover:bg-slate-750'}`}
-                        onClick={() => {
-                            setActiveSceneIndex(index);
-                            setActiveLineId(null);
-                        }}
-                    >
-                        <div className="flex items-start justify-between mb-2">
-                            <div className="flex items-center gap-4">
-                                <span className="font-mono font-bold text-slate-400 text-xs uppercase tracking-widest">Scene {index + 1}</span>
-                                <span className="font-mono font-bold text-white text-sm uppercase tracking-wide">{sluglineText}</span>
-                            </div>
-                            <div className="flex items-center gap-2 text-slate-400 text-xs font-mono bg-slate-900/50 px-2 py-1 rounded">
-                                <Icons.Clock />
-                                <span>{scene.estimated_duration_sec}s</span>
-                            </div>
-                        </div>
-
-                        {/* Synopsis Display */}
-                        {scene.synopsis && (
-                            <div className="text-slate-300 text-sm font-serif italic pl-16 border-l-2 border-slate-600 ml-2">
-                                "{scene.synopsis}"
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Script Body */}
-                    <div className="p-8 min-h-[100px] relative" onClick={() => {
-                        // If clicking empty space, select scene
+            <div key={scene.id} className="relative group">
+                {/* Scene Header (Full Width) */}
+                <div
+                    className={`bg-slate-900 text-white px-8 py-4 cursor-pointer transition-colors border-y border-slate-950 ${isSelected ? 'bg-slate-800 ring-2 ring-indigo-500 ring-inset z-10 relative' : 'hover:bg-slate-800'}`}
+                    onClick={() => {
                         setActiveSceneIndex(index);
                         setActiveLineId(null);
-                    }}>
-                        {!hasScript ? (
-                            <div className="text-center py-8 opacity-50 cursor-pointer hover:opacity-100 transition-opacity" onClick={(e) => {
-                                e.stopPropagation();
-                                addLine(index, 'action', -1);
-                            }}>
-                                <p className="italic mb-2 text-slate-400">Scene is empty.</p>
-                                <button className="text-indigo-600 font-bold text-sm bg-indigo-50 px-3 py-1 rounded-lg">Start Writing</button>
-                            </div>
-                        ) : (
-                            <div className="space-y-1">
-                                {lines.map((line, lIdx) => renderScriptLine(line, lIdx, index))}
-                            </div>
-                        )}
-
-                        {/* Bottom Add Area */}
-                        {hasScript && (
-                            <div className="h-8 -mb-4 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer"
-                                onClick={(e) => { e.stopPropagation(); addLine(index, 'action', lines.length - 1); }}
-                            >
-                                <div className="h-px bg-indigo-200 w-full absolute"></div>
-                                <span className="relative bg-white px-2 text-xs text-indigo-500 font-bold border border-indigo-200 rounded-full z-10">+ Add Line</span>
-                            </div>
-                        )}
+                    }}
+                >
+                    <div className="flex items-start justify-between mb-2">
+                        <div className="flex items-center gap-4">
+                            <span className="font-mono font-bold text-slate-500 text-xs uppercase tracking-widest">Scene {index + 1}</span>
+                            <span className="font-mono font-bold text-white text-base uppercase tracking-wide">{sluglineText}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-slate-400 text-xs font-mono bg-black/30 px-2 py-1 rounded">
+                            <Icons.Clock />
+                            <span>{scene.estimated_duration_sec}s</span>
+                        </div>
                     </div>
+
+                    {/* Synopsis Display */}
+                    {scene.synopsis && (
+                        <div className="text-slate-400 text-sm font-serif italic pl-16 border-l-2 border-slate-700 ml-2 max-w-3xl">
+                            "{scene.synopsis}"
+                        </div>
+                    )}
+                </div>
+
+                {/* Script Body */}
+                <div className="px-16 py-8 min-h-[100px] relative hover:bg-slate-50/50 transition-colors" onClick={() => {
+                    // If clicking empty space, select scene
+                    setActiveSceneIndex(index);
+                    setActiveLineId(null);
+                }}>
+                    {!hasScript ? (
+                        <div className="text-center py-8 opacity-50 cursor-pointer hover:opacity-100 transition-opacity" onClick={(e) => {
+                            e.stopPropagation();
+                            addLine(index, 'action', -1);
+                        }}>
+                            <p className="italic mb-2 text-slate-400">Scene is empty.</p>
+                            <button className="text-indigo-600 font-bold text-sm bg-indigo-50 px-3 py-1 rounded-lg">Start Writing</button>
+                        </div>
+                    ) : (
+                        <div className="space-y-1">
+                            {lines.map((line, lIdx) => renderScriptLine(line, lIdx, index))}
+                        </div>
+                    )}
+
+                    {/* Bottom Add Area */}
+                    {hasScript && (
+                        <div className="h-8 -mb-4 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer absolute bottom-0 left-0 right-0 z-10"
+                            onClick={(e) => { e.stopPropagation(); addLine(index, 'action', lines.length - 1); }}
+                        >
+                            <div className="h-px bg-indigo-200 w-full absolute"></div>
+                            <span className="relative bg-white px-2 text-xs text-indigo-500 font-bold border border-indigo-200 rounded-full z-10 shadow-sm">+ Add Line</span>
+                        </div>
+                    )}
                 </div>
             </div>
         );
@@ -488,8 +484,9 @@ const Step3Screenplay: React.FC<Props> = ({
                 </div>
 
                 {/* Main Script Area */}
-                <div className="flex-1 overflow-y-auto bg-slate-100 p-8 custom-scrollbar">
-                    <div className="max-w-4xl mx-auto pb-20">
+                <div className="flex-1 overflow-y-auto bg-white custom-scrollbar">
+                    {/* The "Page" - Now Full Width/Height */}
+                    <div className="min-h-full pb-20">
                         {project.database.scenes.map((scene, idx) => renderScene(scene, idx))}
 
                         {/* Empty State / Welcome */}
