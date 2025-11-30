@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ProjectBackbone, SceneTemplate, ScriptLine, CharacterTemplate } from '../types';
 import { generateScreenplay } from '../services/geminiService';
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
+import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 interface Props {
     project?: ProjectBackbone;
@@ -115,6 +118,27 @@ const Step3Screenplay: React.FC<Props> = ({
         }
     };
 
+    const handleDragEnd = (event: DragEndEvent, sceneIndex: number) => {
+        const { active, over } = event;
+        if (!over || active.id === over.id) return;
+
+        const scene = project.database.scenes[sceneIndex];
+        const lines = scene.script_content?.lines || [];
+
+        const oldIndex = lines.findIndex((line) => line.id === active.id);
+        const newIndex = lines.findIndex((line) => line.id === over.id);
+
+        const newLines = arrayMove(lines, oldIndex, newIndex) as ScriptLine[];
+        updateSceneLines(sceneIndex, newLines);
+    };
+
+    const sensors = useSensors(
+        useSensor(PointerSensor),
+        useSensor(KeyboardSensor, {
+            coordinateGetter: sortableKeyboardCoordinates,
+        })
+    );
+
     // --- ICONS ---
     const Icons = {
         Slugline: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>,
@@ -125,6 +149,21 @@ const Step3Screenplay: React.FC<Props> = ({
         Clock: () => <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
         Trash: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>,
         Edit: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+    };
+
+    const getCharacterColor = (characterName?: string) => {
+        if (!characterName) return 'bg-slate-100';
+        const char = project.database.characters.find(c => c.name.toUpperCase() === characterName.toUpperCase());
+        // Fallback colors if not defined
+        if (!char?.color) {
+            const colors = ['bg-blue-100', 'bg-green-100', 'bg-yellow-100', 'bg-red-100', 'bg-purple-100', 'bg-pink-100', 'bg-orange-100', 'bg-teal-100'];
+            let hash = 0;
+            for (let i = 0; i < characterName.length; i++) {
+                hash = characterName.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            return colors[Math.abs(hash) % colors.length];
+        }
+        return char.color;
     };
 
     const getIconForType = (type: ScriptLine['type']) => {
@@ -300,70 +339,101 @@ const Step3Screenplay: React.FC<Props> = ({
         );
     };
 
-    const renderScriptLine = (line: ScriptLine, index: number, sceneIndex: number) => {
+    // Sortable Item Component
+    const SortableScriptLine = ({ line, index, sceneIndex }: { line: ScriptLine, index: number, sceneIndex: number, key?: any }) => {
+        const {
+            attributes,
+            listeners,
+            setNodeRef,
+            transform,
+            transition,
+            isDragging
+        } = useSortable({ id: line.id });
+
+        const style = {
+            transform: CSS.Transform.toString(transform),
+            transition,
+            zIndex: isDragging ? 50 : 'auto',
+            position: isDragging ? 'relative' as const : 'static' as const,
+        };
+
         // Skip rendering inline sluglines as they are now in the header
         if (line.type === 'slugline') return null;
 
         const isActive = activeLineId === line.id;
+        const isDialogue = line.type === 'dialogue';
+        const characterColor = isDialogue ? getCharacterColor(line.speaker) : 'bg-transparent';
+        const highlightClass = isActive && isDialogue ? characterColor : 'bg-transparent';
 
         return (
             <div
-                key={line.id}
-                className={`group relative flex items-start gap-4 p-3 -mx-4 rounded-lg transition-all cursor-pointer ${isActive ? 'bg-indigo-50/50 ring-1 ring-indigo-200' : 'hover:bg-slate-50'}`}
+                ref={setNodeRef}
+                style={style}
+                className={`group relative flex items-start gap-4 py-1 px-4 -mx-4 rounded-lg transition-all cursor-text ${isActive ? '' : 'hover:bg-slate-50'} ${isDragging ? 'opacity-50 bg-slate-100' : ''}`}
                 onClick={(e) => {
                     e.stopPropagation();
                     setActiveLineId(line.id);
                     setActiveSceneIndex(sceneIndex);
                 }}
             >
-                {/* Icon Column */}
-                <div className="w-8 flex-shrink-0 flex flex-col items-center pt-1">
-                    <div className={`w-6 h-6 rounded flex items-center justify-center text-xs select-none transition-colors ${isActive ? 'bg-indigo-100 text-indigo-600' : 'text-slate-300 group-hover:text-slate-400 bg-slate-50 group-hover:bg-slate-100'}`}>
-                        {getIconForType(line.type)}
+                {/* Icon Column (Left) - Drag Handle */}
+                <div
+                    className="w-8 flex-shrink-0 flex flex-col items-center pt-1.5 opacity-50 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing"
+                    {...attributes}
+                    {...listeners}
+                >
+                    <div className="w-6 h-6 rounded-full border border-slate-200 flex items-center justify-center text-[10px] text-slate-400 bg-white shadow-sm hover:border-indigo-300 hover:text-indigo-500 transition-colors">
+                        {line.type === 'action' && 'A'}
+                        {line.type === 'dialogue' && 'D'}
+                        {line.type === 'parenthetical' && 'P'}
+                        {line.type === 'transition' && 'T'}
                     </div>
                 </div>
 
-                {/* Content Column */}
-                <div className="flex-1 min-w-0 font-mono text-sm leading-relaxed">
-                    {line.type === 'action' && (
-                        <div className="text-slate-700 whitespace-pre-wrap">
-                            {line.content || <span className="text-slate-300 italic">Action description...</span>}
-                        </div>
-                    )}
+                {/* Content Column (Text) */}
+                <div className="flex-1 min-w-0 font-mono text-base leading-relaxed relative">
 
+                    {/* Character Name (for Dialogue) */}
                     {line.type === 'dialogue' && (
-                        <div className="max-w-lg mx-auto text-center">
-                            <div className="font-bold text-slate-800 uppercase mb-0.5">{line.speaker || 'CHARACTER'}</div>
-                            <div className="text-slate-800 whitespace-pre-wrap">{line.content || <span className="text-slate-300 italic">Dialogue...</span>}</div>
+                        <div className="mb-0.5 font-bold text-slate-700 uppercase text-sm tracking-wide select-none">
+                            {line.speaker || 'CHARACTER'}
                         </div>
                     )}
 
-                    {line.type === 'parenthetical' && (
-                        <div className="max-w-md mx-auto text-center text-slate-500 italic">
-                            ({line.parenthetical || line.content || 'emotion'})
-                        </div>
-                    )}
-
-                    {line.type === 'transition' && (
-                        <div className="text-right font-bold text-slate-800 uppercase tracking-widest">
-                            {line.content || 'CUT TO:'}
-                        </div>
-                    )}
+                    {/* Editable Text Area */}
+                    <div className={`relative rounded px-1 -mx-1 ${highlightClass} transition-colors duration-200`}>
+                        {line.type === 'parenthetical' && <span className="text-slate-400 mr-1">(</span>}
+                        <textarea
+                            value={line.content}
+                            onChange={(e) => handleLineChange(sceneIndex, line.id, 'content', e.target.value)}
+                            className={`w-full bg-transparent outline-none resize-none overflow-hidden text-slate-800 placeholder-slate-300 ${line.type === 'parenthetical' ? 'italic text-slate-500' : ''} ${line.type === 'transition' ? 'text-right uppercase font-bold' : ''}`}
+                            placeholder={line.type === 'dialogue' ? "Dialogue..." : "Action description..."}
+                            rows={Math.max(1, line.content.split('\n').length)}
+                            style={{ minHeight: '1.5em' }}
+                            onClick={(e) => e.stopPropagation()}
+                            onFocus={() => {
+                                setActiveLineId(line.id);
+                                setActiveSceneIndex(sceneIndex);
+                            }}
+                            onKeyDown={(e) => {
+                                // Stop propagation of space key to prevent dnd-kit from triggering drag
+                                if (e.key === ' ') {
+                                    e.stopPropagation();
+                                }
+                            }}
+                        />
+                        {line.type === 'parenthetical' && <span className="text-slate-400 ml-1">)</span>}
+                    </div>
                 </div>
 
-                {/* Hover Add Buttons */}
-                <div className="absolute -bottom-3 left-12 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex gap-1">
+                {/* Hover Delete Button */}
+                <div className="absolute right-2 top-1 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
                     <button
-                        onClick={(e) => { e.stopPropagation(); addLine(sceneIndex, 'action', index); }}
-                        className="bg-white border border-slate-200 shadow-sm rounded-full px-2 py-0.5 text-[10px] font-bold text-slate-500 hover:text-indigo-600 hover:border-indigo-200"
+                        onClick={(e) => { e.stopPropagation(); removeLine(sceneIndex, line.id); }}
+                        className="text-slate-300 hover:text-red-500 p-1"
+                        title="Delete"
                     >
-                        + Action
-                    </button>
-                    <button
-                        onClick={(e) => { e.stopPropagation(); addLine(sceneIndex, 'dialogue', index); }}
-                        className="bg-white border border-slate-200 shadow-sm rounded-full px-2 py-0.5 text-[10px] font-bold text-slate-500 hover:text-indigo-600 hover:border-indigo-200"
-                    >
-                        + Dialogue
+                        <Icons.Trash />
                     </button>
                 </div>
             </div>
@@ -425,7 +495,20 @@ const Step3Screenplay: React.FC<Props> = ({
                         </div>
                     ) : (
                         <div className="space-y-1">
-                            {lines.map((line, lIdx) => renderScriptLine(line, lIdx, index))}
+                            <DndContext
+                                sensors={sensors}
+                                collisionDetection={closestCenter}
+                                onDragEnd={(e) => handleDragEnd(e, index)}
+                            >
+                                <SortableContext
+                                    items={lines.map(l => l.id)}
+                                    strategy={verticalListSortingStrategy}
+                                >
+                                    {lines.map((line, lIdx) => (
+                                        <SortableScriptLine key={line.id} line={line} index={lIdx} sceneIndex={index} />
+                                    ))}
+                                </SortableContext>
+                            </DndContext>
                         </div>
                     )}
 

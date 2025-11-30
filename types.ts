@@ -256,6 +256,7 @@ export interface CharacterTemplate {
     stability: number;
     similarity_boost: number;
   };
+  color?: string; // UI highlight color
 }
 
 export interface LocationTemplate {
