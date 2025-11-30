@@ -412,13 +412,7 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
         }
     }, [logs, isOpen, activeTab, agentMessages, highlightedMessageId]);
 
-    // Clear highlight after a delay
-    useEffect(() => {
-        if (highlightedMessageId) {
-            const timer = setTimeout(() => setHighlightedMessageId(null), 3000);
-            return () => clearTimeout(timer);
-        }
-    }, [highlightedMessageId]);
+
 
     const handleLogClick = (log: LogEntry) => {
         if (log.agentRole && log.linkedMessageId) {
@@ -512,25 +506,25 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
             {/* TAB BAR */}
             <div className="bg-slate-900 px-6 pt-2 border-b border-slate-800 flex gap-1">
                 <button
-                    onClick={() => setActiveTab('SYSTEM')}
+                    onClick={() => { setActiveTab('SYSTEM'); setHighlightedMessageId(null); }}
                     className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors ${activeTab === 'SYSTEM' ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
                 >
                     🖥️ System Logs
                 </button>
                 <button
-                    onClick={() => setActiveTab(AgentRole.DIRECTOR)}
+                    onClick={() => { setActiveTab(AgentRole.DIRECTOR); setHighlightedMessageId(null); }}
                     className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors ${activeTab === AgentRole.DIRECTOR ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
                 >
                     🎬 Director
                 </button>
                 <button
-                    onClick={() => setActiveTab(AgentRole.SCREENWRITER)}
+                    onClick={() => { setActiveTab(AgentRole.SCREENWRITER); setHighlightedMessageId(null); }}
                     className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors ${activeTab === AgentRole.SCREENWRITER ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
                 >
                     ✍️ Screenwriter
                 </button>
                 <button
-                    onClick={() => setActiveTab(AgentRole.REVIEWER)}
+                    onClick={() => { setActiveTab(AgentRole.REVIEWER); setHighlightedMessageId(null); }}
                     className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors ${activeTab === AgentRole.REVIEWER ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
                 >
                     ⚖️ Reviewer
