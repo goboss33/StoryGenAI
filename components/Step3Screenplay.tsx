@@ -17,7 +17,7 @@ interface Props {
 // --- ICONS ---
 const Icons = {
     Slugline: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>,
-    Action: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>,
+    Action: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" /></svg>, // Film strip / Clapperboard style
     Dialogue: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>,
     Parenthetical: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>,
     Transition: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" /></svg>,
@@ -36,6 +36,7 @@ interface SortableScriptLineProps {
     handleLineChange: (sceneIndex: number, lineId: string, field: keyof ScriptLine, value: any) => void;
     removeLine: (sceneIndex: number, lineId: string) => void;
     getCharacterColor: (name?: string) => string;
+    characters?: CharacterTemplate[];
     key?: any;
 }
 
@@ -49,7 +50,8 @@ const SortableScriptLine = ({
     setActiveSceneIndex,
     handleLineChange,
     removeLine,
-    getCharacterColor
+    getCharacterColor,
+    characters
 }: SortableScriptLineProps) => {
     const {
         attributes,
@@ -75,6 +77,10 @@ const SortableScriptLine = ({
     const characterColor = isDialogue ? getCharacterColor(line.speaker) : 'bg-transparent';
     const highlightClass = isActive && isDialogue ? characterColor : 'bg-transparent';
 
+    // Find character asset if available
+    const character = isDialogue && characters ? characters.find(c => c.name.toUpperCase() === line.speaker?.toUpperCase()) : null;
+    const characterImage = character?.visual_seed?.ref_image_url;
+
     return (
         <div
             ref={setNodeRef}
@@ -88,16 +94,27 @@ const SortableScriptLine = ({
         >
             {/* Icon Column (Left) - Drag Handle */}
             <div
-                className="w-8 flex-shrink-0 flex flex-col items-center pt-1.5 opacity-50 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing"
+                className="w-10 flex-shrink-0 flex flex-col items-center pt-1.5 opacity-50 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing"
                 {...attributes}
                 {...listeners}
             >
-                <div className="w-6 h-6 rounded-full border border-slate-200 flex items-center justify-center text-[10px] text-slate-400 bg-white shadow-sm hover:border-indigo-300 hover:text-indigo-500 transition-colors">
-                    {line.type === 'action' && 'A'}
-                    {line.type === 'dialogue' && 'D'}
-                    {line.type === 'parenthetical' && 'P'}
-                    {line.type === 'transition' && 'T'}
-                </div>
+                {line.type === 'action' ? (
+                    <div className="w-8 h-8 rounded-lg border-2 border-slate-200 flex items-center justify-center text-slate-400 bg-white shadow-sm hover:border-indigo-300 hover:text-indigo-500 transition-colors">
+                        <Icons.Action />
+                    </div>
+                ) : (
+                    <div className={`w-8 h-8 rounded-full border border-slate-200 flex items-center justify-center text-xs font-bold shadow-sm hover:border-indigo-300 transition-colors overflow-hidden ${characterImage ? 'bg-white' : (isDialogue ? characterColor : 'bg-white text-slate-400')}`}>
+                        {characterImage ? (
+                            <img src={characterImage} alt={line.speaker} className="w-full h-full object-cover" />
+                        ) : (
+                            <>
+                                {line.type === 'dialogue' && 'D'}
+                                {line.type === 'parenthetical' && 'P'}
+                                {line.type === 'transition' && 'T'}
+                            </>
+                        )}
+                    </div>
+                )}
             </div>
 
             {/* Content Column (Text) */}
@@ -539,6 +556,7 @@ const Step3Screenplay: React.FC<Props> = ({
                                             handleLineChange={handleLineChange}
                                             removeLine={removeLine}
                                             getCharacterColor={getCharacterColor}
+                                            characters={project.database.characters}
                                         />
                                     ))}
                                 </SortableContext>
