@@ -182,7 +182,8 @@ export enum AgentRole {
   DIRECTOR = 'Director',
   SCREENWRITER = 'Screenwriter',
   REVIEWER = 'Reviewer',
-  DESIGNER = 'Designer'
+  DESIGNER = 'Designer',
+  ANALYST = 'Analyst'
 }
 
 export interface AgentMessage {
@@ -196,6 +197,16 @@ export interface AgentMessage {
   dynamicPrompt?: string;
   finalPrompt?: string;
   data?: any; // Parsed JSON content
+}
+
+// --- SMART ANALYSIS STRUCTURES ---
+export interface StoryManifest {
+  pitch: string;
+  entities: {
+    characters: { name: string; description: string; role?: string }[];
+    locations: { name: string; description: string }[];
+  };
+  plot_points: string[];
 }
 
 // --- ADVANCED PROMPT ENGINEERING STRUCTURES ---

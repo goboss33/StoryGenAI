@@ -175,20 +175,90 @@ export const chatWithAgent = async (role: AgentRole, message: string): Promise<s
   return manager.sendMessage(role, session, message);
 };
 
+// --- AGENTIC WORKFLOW: STEP 0 - SMART ANALYSIS (ANALYST AGENT) ---
+export const extractStoryManifest = async (
+  idea: string,
+  settings: { language: string }
+): Promise<import("../types").StoryManifest> => {
+  const systemInstruction = `
+    Role: Senior Script Analyst.
+    Task: Deconstruct the user's raw story idea into a structured manifest.
+    Goal: Extract explicit constraints (Characters, Locations, Plot) to ensure the Director respects the user's specific vision.
+    
+    INSTRUCTIONS:
+    1. **Pitch**: Summarize the core concept in one sentence.
+    2. **Entities**: Extract every character and location explicitly mentioned.
+       - If the user says "A fox with a bushy tail", capture "Fox" + "Bushy tail".
+       - Do NOT invent characters or locations not implied by the text.
+    3. **Plot**: If the user describes a sequence of events, list them.
+    4. **Output JSON only**.
+  `;
+
+  const modelName = "gemini-2.0-flash-exp";
+  const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "application/json" } });
+
+  const agentManager = AgentManager.getInstance();
+  const analystSession = agentManager.getAgent(AgentRole.ANALYST, model, systemInstruction, {
+    model: modelName,
+    dynamicPrompt: systemInstruction,
+    finalPrompt: systemInstruction
+  });
+
+  const prompt = `
+    ANALYZE THIS IDEA:
+    "${idea}"
+
+    Language: ${settings.language}
+
+    OUTPUT JSON SCHEMA:
+    {
+      "pitch": "string",
+      "entities": {
+        "characters": [{ "name": "string", "description": "string", "role": "string (optional)" }],
+        "locations": [{ "name": "string", "description": "string" }]
+      },
+      "plot_points": ["string"]
+    }
+  `;
+
+  // INTERCEPT FOR REVIEW
+  const finalPrompt = await checkReviewMode(prompt, 'Analyst: Extract Manifest');
+
+  const messageId = crypto.randomUUID();
+  logDebug('req', 'Analyst Agent: Extract Manifest', { idea }, { model: modelName, finalPrompt: finalPrompt, agentRole: AgentRole.ANALYST, linkedMessageId: messageId });
+
+  const text = await agentManager.sendMessage(AgentRole.ANALYST, analystSession, finalPrompt, {
+    model: modelName,
+    finalPrompt: finalPrompt,
+    dynamicPrompt: prompt,
+    messageId: messageId
+  });
+
+  const manifest = JSON.parse(text);
+  logDebug('res', 'Analyst Agent: Manifest Extracted', { manifest }, { agentRole: AgentRole.ANALYST, linkedMessageId: messageId });
+
+  return manifest;
+};
+
 // --- AGENTIC WORKFLOW: STEP 1 - SKELETON GENERATION (DIRECTOR AGENT) ---
 export const analyzeStoryConcept = async (
   idea: string,
   settings: { tone: string; targetAudience: string; language: string; duration: number; videoType: string; visualStyle: string }
 ): Promise<import("../types").ProjectBackbone> => {
+
+  // 1. Run Smart Analysis first
+  const manifest = await extractStoryManifest(idea, { language: settings.language });
+
   const systemInstruction = `
     Role: Creative Director & Showrunner.
     Task: You are responsible for the initial vision of the video project.
     
     Responsibilities:
-    1. Analyze the user's raw idea.
+    1. Analyze the user's raw idea AND the Analyst's Manifest.
     2. Define the "Project Backbone": Structure, Characters, Locations, Scene List.
-    3. Ensure the tone and style are consistent.
-    4. Output strictly valid JSON when requested.
+    3. **CRITICAL**: You MUST use the Characters and Locations defined in the Manifest. Do not reinvent them. You can add more if needed, but respect the user's explicit choices.
+    4. Ensure the tone and style are consistent.
+    5. Output strictly valid JSON when requested.
   `;
 
   const modelName = "gemini-2.0-flash-exp";
@@ -202,7 +272,7 @@ export const analyzeStoryConcept = async (
     finalPrompt: systemInstruction
   });
 
-  // 1. Define Template
+  // 2. Define Template
   const promptTemplate = `
     INPUT:
     - Idea: "{{idea}}"
@@ -213,9 +283,12 @@ export const analyzeStoryConcept = async (
     - Language: {{language}}
     - Total Duration: {{duration}}s
 
+    ANALYST MANIFEST (STRICT CONSTRAINTS):
+    {{manifest}}
+
     INSTRUCTIONS:
-    1. **Characters**: Create detailed profiles (Name, Role, Visual Description).
-    2. **Locations**: Create detailed profiles (Name, Environment Prompt).
+    1. **Characters**: Use the Manifest characters first. Expand details if needed.
+    2. **Locations**: Use the Manifest locations first.
     3. **Scene List**: Break the story into logical scenes.
        - Assign an \`estimated_duration_sec\` to each scene.
        - **CRITICAL**: The sum of scene durations MUST equal {{duration}}s (+/- 5s).
@@ -246,7 +319,7 @@ export const analyzeStoryConcept = async (
     }
   `;
 
-  // 2. Fill Template
+  // 3. Fill Template
   const finalPrompt = promptTemplate
     .replace(/{{idea}}/g, idea)
     .replace(/{{videoType}}/g, settings.videoType)
@@ -254,13 +327,14 @@ export const analyzeStoryConcept = async (
     .replace(/{{tone}}/g, settings.tone)
     .replace(/{{targetAudience}}/g, settings.targetAudience)
     .replace(/{{language}}/g, settings.language)
-    .replace(/{{duration}}/g, settings.duration.toString());
+    .replace(/{{duration}}/g, settings.duration.toString())
+    .replace(/{{manifest}}/g, JSON.stringify(manifest, null, 2));
 
   // INTERCEPT FOR REVIEW
   const reviewedPrompt = await checkReviewMode(finalPrompt, 'Director: Generate Skeleton');
 
   const messageId = crypto.randomUUID();
-  logDebug('req', 'Director Agent: Generate Skeleton', { idea }, { model: modelName, finalPrompt: reviewedPrompt, agentRole: AgentRole.DIRECTOR, linkedMessageId: messageId });
+  logDebug('req', 'Director Agent: Generate Skeleton', { idea, manifest }, { model: modelName, finalPrompt: reviewedPrompt, agentRole: AgentRole.DIRECTOR, linkedMessageId: messageId });
 
   // Use AgentManager to send message (handles logging)
   const text = await agentManager.sendMessage(AgentRole.DIRECTOR, directorSession, reviewedPrompt, {

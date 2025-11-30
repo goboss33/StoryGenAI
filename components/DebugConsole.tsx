@@ -144,6 +144,7 @@ const LogItem: React.FC<{ log: LogEntry; isSummary?: boolean; onClick?: () => vo
         if (log.agentRole === AgentRole.SCREENWRITER || log.title.includes("Screenwriter")) return "✍️";
         if (log.agentRole === AgentRole.REVIEWER || log.title.includes("Reviewer")) return "⚖️";
         if (log.agentRole === AgentRole.DESIGNER || log.title.includes("Designer")) return "🎨";
+        if (log.agentRole === AgentRole.ANALYST || log.title.includes("Analyst")) return "🧐";
         return null;
     };
     const icon = getIcon();
@@ -401,7 +402,9 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
         [AgentRole.DIRECTOR]: [],
         [AgentRole.SCREENWRITER]: [],
         [AgentRole.REVIEWER]: [],
-        [AgentRole.DESIGNER]: []
+        [AgentRole.REVIEWER]: [],
+        [AgentRole.DESIGNER]: [],
+        [AgentRole.ANALYST]: []
     });
     const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
     const [chatInput, setChatInput] = useState("");
@@ -430,7 +433,9 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
             [AgentRole.DIRECTOR]: getAgentHistory(AgentRole.DIRECTOR),
             [AgentRole.SCREENWRITER]: getAgentHistory(AgentRole.SCREENWRITER),
             [AgentRole.REVIEWER]: getAgentHistory(AgentRole.REVIEWER),
-            [AgentRole.DESIGNER]: getAgentHistory(AgentRole.DESIGNER)
+            [AgentRole.REVIEWER]: getAgentHistory(AgentRole.REVIEWER),
+            [AgentRole.DESIGNER]: getAgentHistory(AgentRole.DESIGNER),
+            [AgentRole.ANALYST]: getAgentHistory(AgentRole.ANALYST)
         });
 
         const unsubscribe = subscribeToAgentMessages((role, message) => {
@@ -578,6 +583,12 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
                     className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors ${activeTab === AgentRole.DESIGNER ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
                 >
                     🎨 Designer
+                </button>
+                <button
+                    onClick={() => { setActiveTab(AgentRole.ANALYST); setHighlightedMessageId(null); }}
+                    className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors ${activeTab === AgentRole.ANALYST ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
+                >
+                    🧐 Analyst
                 </button>
             </div>
 
