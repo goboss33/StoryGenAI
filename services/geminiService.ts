@@ -274,7 +274,7 @@ export const extractStoryManifest = async (
   const messageId = crypto.randomUUID();
   logDebug('req', 'Analyst Agent: Extract Manifest', { idea }, { model: modelName, finalPrompt: finalPrompt, agentRole: AgentRole.ANALYST, linkedMessageId: messageId });
 
-  const text = await agentManager.sendMessage(AgentRole.ANALYST, analystSession, finalPrompt, {
+  const text = await agentManager.sendMessage(AgentRole.ANALYST, analystSession, finalPrompt, [], {
     model: modelName,
     finalPrompt: finalPrompt,
     dynamicPrompt: prompt,
@@ -384,7 +384,7 @@ export const analyzeStoryConcept = async (
   logDebug('req', 'Director Agent: Generate Skeleton', { idea, manifest }, { model: modelName, finalPrompt: reviewedPrompt, agentRole: AgentRole.DIRECTOR, linkedMessageId: messageId });
 
   // Use AgentManager to send message (handles logging)
-  const text = await agentManager.sendMessage(AgentRole.DIRECTOR, directorSession, reviewedPrompt, {
+  const text = await agentManager.sendMessage(AgentRole.DIRECTOR, directorSession, reviewedPrompt, [], {
     model: modelName,
     finalPrompt: reviewedPrompt,
     dynamicPrompt: promptTemplate, // Pass the raw template
@@ -527,7 +527,7 @@ export const generateScreenplay = async (
           });
 
           // Use AgentManager to send message
-          const text = await agentManager.sendMessage(AgentRole.SCREENWRITER, chatSession, finalPrompt, {
+          const text = await agentManager.sendMessage(AgentRole.SCREENWRITER, chatSession, finalPrompt, [], {
             model: modelName,
             finalPrompt: finalPrompt,
             dynamicPrompt: currentScenePrompt, // Pass the raw template
@@ -1530,7 +1530,7 @@ export const generateAssetImage = async (
     linkedMessageId: messageId
   });
 
-  const responseText = await agentManager.sendMessage(AgentRole.DESIGNER, chatSession, userRequest, {
+  const responseText = await agentManager.sendMessage(AgentRole.DESIGNER, chatSession, userRequest, [], {
     model: modelName,
     messageId: messageId
   });
