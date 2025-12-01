@@ -510,7 +510,7 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
     // Styles for Detached vs Inline
     const containerClasses = isDetached
         ? "h-screen w-screen bg-slate-900 flex flex-col overflow-hidden relative" // Detached: Full window
-        : "fixed bottom-0 right-0 z-50 bg-slate-900 border-t border-slate-700 shadow-2xl flex flex-col transition-none relative"; // Inline: Fixed bottom
+        : "fixed bottom-0 right-0 z-50 bg-slate-900 border-t border-slate-700 shadow-2xl flex flex-col transition-none"; // Inline: Fixed bottom
 
     const containerStyle = isDetached
         ? {}
