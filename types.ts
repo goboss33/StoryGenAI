@@ -206,6 +206,7 @@ export interface StoryManifest {
   entities: {
     characters: { name: string; description: string; role?: string }[];
     locations: { name: string; description: string }[];
+    items: { name: string; description: string; type: string }[];
   };
   plot_points: string[];
 }
@@ -257,10 +258,28 @@ export interface ScreenplayStructure {
 export interface CharacterTemplate {
   id: string;
   name: string;
-  role: string; // e.g., "Protagonist"
+  role: string; // e.g., "Protagonist", "Antagonist", "Supporting"
+  visual_details: {
+    age: string;
+    gender: string;
+    ethnicity: string;
+    hair: string;
+    eyes: string;
+    clothing: string;
+    accessories: string;
+    body_type: string;
+  };
   visual_seed: {
-    description: string;
+    description: string; // Compiled description for image generation
     ref_image_url?: string;
+  };
+  voice_specs: {
+    gender: 'male' | 'female';
+    age_group: 'child' | 'teen' | 'adult' | 'senior';
+    accent: string;
+    pitch: number; // 0.5 to 2.0
+    speed: number; // 0.5 to 2.0
+    tone: string; // e.g., "Deep", "Raspy", "Soft"
   };
   voice_config?: {
     provider: string;
@@ -274,8 +293,20 @@ export interface CharacterTemplate {
 export interface LocationTemplate {
   id: string;
   name: string;
-  environment_prompt: string;
+  description: string;
+  environment_prompt: string; // For image generation
   interior_exterior: 'INT' | 'EXT';
+  lighting_default: string; // e.g., "Natural sunlight", "Dim fluorescent"
+  audio_ambiance: string; // e.g., "Birds chirping, wind rustling", "City traffic, distant sirens"
+  ref_image_url?: string;
+}
+
+export interface ItemTemplate {
+  id: string;
+  name: string;
+  description: string;
+  type: 'prop' | 'vehicle' | 'animal' | 'weapon' | 'other';
+  visual_details: string; // For image generation consistency
   ref_image_url?: string;
 }
 
@@ -284,15 +315,26 @@ export interface ShotTemplate {
   id: string;
   duration_sec: number; // Exact duration of the shot
   composition: {
-    shot_type: string; // Wide, Medium, Close-up
-    camera_movement: string; // Pan, Tilt, Static, Zoom
-    angle: string; // Eye level, Low angle
+    shot_type: string; // Wide, Medium, Close-up, Extreme Close-up
+    camera_movement: string; // Pan, Tilt, Static, Zoom, Tracking, Dolly
+    angle: string; // Eye level, Low angle, High angle, Dutch angle
+    focal_length?: string; // e.g., "35mm", "85mm"
+    depth_of_field?: string; // e.g., "Shallow", "Deep"
   };
   content: {
-    ui_description: string;
+    ui_description: string; // Human readable description
     characters_in_shot: string[]; // IDs
+    items_in_shot: string[]; // IDs
     final_image_prompt: string; // Detailed static image prompt
     video_motion_prompt: string; // Detailed Veo animation prompt
+    veo_elements?: {
+      cinematography: string;
+      subject_context: string;
+      action: string;
+      style_ambiance: string;
+      audio_prompt: string;
+      negative_prompt: string;
+    };
     seed?: number;
   };
   audio: {
@@ -301,14 +343,16 @@ export interface ShotTemplate {
     specificAudioCues?: string; // Specific sound effects or cues
     is_voice_over: boolean;
     dialogue?: {
-      speaker: string;
+      speaker: string; // Character ID or "Narrator"
       text: string;
       tone: string;
+      voice_id?: string; // Override or specific voice
     }[];
   };
   video_generation: {
-    status: 'pending' | 'processing' | 'ready';
+    status: 'pending' | 'processing' | 'ready' | 'failed';
     video_file_url?: string;
+    error_message?: string;
   };
 }
 
@@ -365,6 +409,7 @@ export interface ProjectBackbone {
   database: {
     characters: CharacterTemplate[];
     locations: LocationTemplate[];
+    items: ItemTemplate[];
     scenes: SceneTemplate[];
   };
   final_render: {

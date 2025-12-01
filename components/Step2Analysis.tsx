@@ -14,7 +14,7 @@ interface Props {
     analysisStatus?: string;
 }
 
-type AssetType = 'character' | 'location';
+type AssetType = 'character' | 'location' | 'item';
 
 const Step2Analysis: React.FC<Props> = ({
     project, originalDatabase, onUpdate, onUpdateAssets, onRegenerationComplete, onNext, onBack, isAnalyzing, analysisStatus
@@ -22,7 +22,7 @@ const Step2Analysis: React.FC<Props> = ({
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [modalType, setModalType] = useState<AssetType>('character');
     const [newItemName, setNewItemName] = useState('');
-    const [newItemRole, setNewItemRole] = useState(''); // Role for char, Type (INT/EXT) for loc
+    const [newItemRole, setNewItemRole] = useState(''); // Role for char, Type (INT/EXT) for loc, Type for item
     const [newItemDesc, setNewItemDesc] = useState('');
 
 
@@ -44,10 +44,17 @@ const Step2Analysis: React.FC<Props> = ({
         onUpdateAssets({ ...project.database, locations: newLocs });
     };
 
+    const handleRemoveItem = (index: number) => {
+        if (!project) return;
+        const newItems = [...project.database.items];
+        newItems.splice(index, 1);
+        onUpdateAssets({ ...project.database, items: newItems });
+    };
+
     const openAddModal = (type: AssetType) => {
         setModalType(type);
         setNewItemName('');
-        setNewItemRole(type === 'character' ? 'Supporting Character' : 'EXT');
+        setNewItemRole(type === 'character' ? 'Supporting Character' : type === 'location' ? 'EXT' : 'prop');
         setNewItemDesc('');
         setIsModalOpen(true);
     };
@@ -60,17 +67,35 @@ const Step2Analysis: React.FC<Props> = ({
                 id: `char_new_${Date.now()}`,
                 name: newItemName,
                 role: newItemRole,
-                visual_seed: { description: newItemDesc }
+                visual_seed: { description: newItemDesc },
+                visual_details: {
+                    age: "Unknown", gender: "Unknown", ethnicity: "Unknown", hair: "Unknown", eyes: "Unknown", clothing: "Unknown", accessories: "Unknown", body_type: "Unknown"
+                },
+                voice_specs: {
+                    gender: 'male', age_group: 'adult', accent: 'neutral', pitch: 1.0, speed: 1.0, tone: 'neutral'
+                }
             };
             onUpdateAssets({ ...project.database, characters: [...project.database.characters, newChar] });
-        } else {
+        } else if (modalType === 'location') {
             const newLoc: LocationTemplate = {
                 id: `loc_new_${Date.now()}`,
                 name: newItemName,
                 interior_exterior: newItemRole as 'INT' | 'EXT',
-                environment_prompt: newItemDesc
+                environment_prompt: newItemDesc,
+                description: newItemDesc,
+                lighting_default: "Natural",
+                audio_ambiance: "Quiet"
             };
             onUpdateAssets({ ...project.database, locations: [...project.database.locations, newLoc] });
+        } else {
+            const newItem: import('../types').ItemTemplate = {
+                id: `item_new_${Date.now()}`,
+                name: newItemName,
+                type: newItemRole as any,
+                description: newItemDesc,
+                visual_details: newItemDesc
+            };
+            onUpdateAssets({ ...project.database, items: [...project.database.items, newItem] });
         }
         setIsModalOpen(false);
     };
@@ -82,7 +107,7 @@ const Step2Analysis: React.FC<Props> = ({
 
         const asset = type === 'character'
             ? project.database.characters[index]
-            : project.database.locations[index];
+            : type === 'location' ? project.database.locations[index] : project.database.items[index];
 
         setGeneratingAssetId(asset.id);
 
@@ -97,10 +122,14 @@ const Step2Analysis: React.FC<Props> = ({
                 const newChars = [...project.database.characters];
                 newChars[index] = { ...newChars[index], visual_seed: { ...newChars[index].visual_seed, ref_image_url: imageUrl } };
                 onUpdateAssets({ ...project.database, characters: newChars });
-            } else {
+            } else if (type === 'location') {
                 const newLocs = [...project.database.locations];
                 newLocs[index] = { ...newLocs[index], ref_image_url: imageUrl };
                 onUpdateAssets({ ...project.database, locations: newLocs });
+            } else {
+                const newItems = [...project.database.items];
+                newItems[index] = { ...newItems[index], ref_image_url: imageUrl };
+                onUpdateAssets({ ...project.database, items: newItems });
             }
         } catch (error) {
             console.error("Failed to generate image", error);
@@ -349,7 +378,7 @@ const Step2Analysis: React.FC<Props> = ({
                 <section className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm relative overflow-hidden">
                     <div className="flex justify-between items-center mb-4">
                         <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                            <span className="bg-blue-100 text-blue-600 w-6 h-6 rounded flex items-center justify-center text-xs">4</span>
+                            <span className="bg-blue-100 text-blue-600 w-6 h-6 rounded flex items-center justify-center text-xs">5</span>
                             Séquencier ({project.database.scenes.length} scènes)
                         </h2>
 
@@ -433,6 +462,19 @@ const Step2Analysis: React.FC<Props> = ({
                                         >
                                             <option value="EXT">Extérieur (EXT)</option>
                                             <option value="INT">Intérieur (INT)</option>
+                                        </select>
+                                    )}
+                                    {modalType === 'item' && (
+                                        <select
+                                            value={newItemRole}
+                                            onChange={(e) => setNewItemRole(e.target.value)}
+                                            className="w-full p-3 rounded-lg border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none"
+                                        >
+                                            <option value="prop">Accessoire (Prop)</option>
+                                            <option value="vehicle">Véhicule</option>
+                                            <option value="animal">Animal</option>
+                                            <option value="weapon">Arme</option>
+                                            <option value="other">Autre</option>
                                         </select>
                                     )}
                                 </div>

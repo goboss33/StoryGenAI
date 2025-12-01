@@ -855,7 +855,8 @@ const generateSceneShots = async (
     CONTEXT:
     - Project Title: "${context.meta_data.title}"
     - Style: "${context.config.tone_style}"
-    - Characters: ${JSON.stringify(context.database.characters.map(c => c.name))}
+    - Characters: ${JSON.stringify(context.database.characters.map(c => ({ id: c.id, name: c.name, role: c.role })))}
+    - Items (Props/Vehicles): ${JSON.stringify(context.database.items.map(i => ({ id: i.id, name: i.name, type: i.type })))}
     - Location: ${context.database.locations.find(l => l.id === scene.location_ref_id)?.name || "Unknown"}
     
     SCENE TO VISUALIZE:
@@ -866,10 +867,8 @@ const generateSceneShots = async (
     INSTRUCTIONS:
     1. Break this scene into a sequence of shots.
     2. **CRITICAL**: The sum of shot durations MUST equal ${scene.estimated_duration_sec}s.
-    3. For each shot:
-       - \`final_image_prompt\`: Detailed static visual description.
-       - \`video_motion_prompt\`: Camera movement and action for AI video.
-       - \`audio_context\`: What we hear (Dialogue/SFX) linked to this specific visual.
+    3. For each shot, you MUST generate the \`veo_elements\` object for high-quality video generation.
+    4. **Items**: If a character interacts with an item (e.g., holding a sword), add its ID to \`items_in_shot\`.
 
     OUTPUT JSON (Array of Shots):
     [
@@ -877,8 +876,22 @@ const generateSceneShots = async (
         "shot_index": 1,
         "duration_sec": 4,
         "composition": { "shot_type": "Wide", "camera_movement": "Static", "angle": "Eye Level" },
-        "content": { "ui_description": "...", "characters_in_shot": [], "final_image_prompt": "...", "video_motion_prompt": "..." },
-        "audio": { "audio_context": "...", "is_voice_over": false }
+        "content": { 
+            "ui_description": "Arthur stands in the forest holding Excalibur.", 
+            "characters_in_shot": ["char_id"], 
+            "items_in_shot": ["item_id"],
+            "final_image_prompt": "Cinematic wide shot of Arthur...", 
+            "video_motion_prompt": "Arthur raises the sword...",
+            "veo_elements": {
+                "cinematography": "Wide shot, static camera, cinematic lighting",
+                "subject_context": "Arthur standing in an ancient forest",
+                "action": "Arthur raises a glowing sword",
+                "style_ambiance": "Mystical, foggy, dramatic lighting",
+                "audio_prompt": "Wind rustling, sword humming",
+                "negative_prompt": "Blurry, distorted, text, watermark"
+            }
+        },
+        "audio": { "audio_context": "Wind rustling", "is_voice_over": false }
       }
     ]
   `;
@@ -943,6 +956,12 @@ export const populateScriptAudio = async (
       role: c.role
     }));
 
+    const itemContext = project.database.items.map(i => ({
+      id: i.id,
+      name: i.name,
+      type: i.type
+    }));
+
     const template = `
     Role: Professional Screenwriter & Dialogue Editor.
     Task: Write precise dialogue and audio cues for an existing visual storyboard.
@@ -956,15 +975,19 @@ export const populateScriptAudio = async (
     CHARACTERS:
     {{characters}}
 
+    ITEMS (PROPS):
+    {{items}}
+
     VISUAL STORYBOARD (DO NOT CHANGE STRUCTURE):
     {{visualStoryboard}}
 
     INSTRUCTIONS:
     1. **Fill Empty Audio Slots**: For each shot, you must provide the 'audio' object.
     2. **Dialogue**: Write natural, character-consistent dialogue. Use the provided character IDs.
-    3. **Specific Audio Cues**: If a shot needs a specific sound (SFX) to match the visual action (e.g., "Door slams", "Bird chirps"), add it to 'specificAudioCues'.
-    4. **Timing**: Ensure dialogue length fits the shot duration.
-    5. **Silence**: If a shot has no dialogue, leave the dialogue array empty.
+    3. **Specific Audio Cues**: If a shot needs a specific sound (SFX) to match the visual action (e.g., "Door slams", "Bird chirps", "Sword clash"), add it to 'specificAudioCues'.
+    4. **Item Sounds**: If an item is in the shot (e.g., a car), ensure its sound is present in 'audio_context' or 'specificAudioCues'.
+    5. **Timing**: Ensure dialogue length fits the shot duration.
+    6. **Silence**: If a shot has no dialogue, leave the dialogue array empty.
 
     OUTPUT FORMAT:
     Return a JSON object mapping Shot IDs to their new Audio Data.
@@ -984,6 +1007,7 @@ export const populateScriptAudio = async (
     let prompt = template
       .replace(/{{language}}/g, project.config.primary_language)
       .replace('{{characters}}', JSON.stringify(characterContext, null, 2))
+      .replace('{{items}}', JSON.stringify(itemContext, null, 2))
       .replace('{{visualStoryboard}}', JSON.stringify(visualContext, null, 2));
 
     // INTERCEPT FOR REVIEW
@@ -1440,8 +1464,8 @@ export const outpaintImage = async (imageUri: string, prompt: string, direction:
 
 // --- 15. Generate Asset Image (Designer Agent) ---
 export const generateAssetImage = async (
-  type: 'character' | 'location',
-  data: import("../types").CharacterTemplate | import("../types").LocationTemplate,
+  type: 'character' | 'location' | 'item',
+  data: import("../types").CharacterTemplate | import("../types").LocationTemplate | import("../types").ItemTemplate,
   projectContext: { title: string; tone: string; style: string }
 ): Promise<string> => {
   const agentManager = AgentManager.getInstance();
@@ -1467,9 +1491,12 @@ export const generateAssetImage = async (
   if (type === 'character') {
     const char = data as import("../types").CharacterTemplate;
     userRequest = `Create a portrait prompt for CHARACTER: ${char.name}. Role: ${char.role}. Description: ${char.visual_seed.description}`;
-  } else {
+  } else if (type === 'location') {
     const loc = data as import("../types").LocationTemplate;
     userRequest = `Create a wide shot prompt for LOCATION: ${loc.name}. Type: ${loc.interior_exterior}. Description: ${loc.environment_prompt}`;
+  } else {
+    const item = data as import("../types").ItemTemplate;
+    userRequest = `Create a product shot prompt for ITEM: ${item.name}. Type: ${item.type}. Description: ${item.description}. Visual Details: ${item.visual_details}`;
   }
 
   // 3. Get Prompt from Designer
@@ -1491,8 +1518,8 @@ export const generateAssetImage = async (
   logDebug('info', `Designer Agent: Prompt Generated`, { prompt: imagePrompt });
 
   // 4. Generate Image via Replicate
-  // Aspect Ratio: 1:1 for Characters (Profile), 16:9 for Locations (Cinematic)
-  const aspectRatio = type === 'character' ? '1:1' : '16:9';
+  // Aspect Ratio: 1:1 for Characters (Profile) and Items, 16:9 for Locations (Cinematic)
+  const aspectRatio = type === 'location' ? '16:9' : '1:1';
 
   // Add style keywords to ensure consistency
   const finalImagePrompt = `${imagePrompt}, ${projectContext.style}, high quality, 8k`;

@@ -39,14 +39,113 @@ const EMPTY_PROJECT_BACKBONE: ProjectBackbone = {
     aspect_ratio: "16:9",
     resolution: "1080p",
     target_fps: 24,
-    primary_language: "fr-FR",
-    target_audience: "General Public",
-    tone_style: "Cinematic",
+    primary_language: "",
+    target_audience: "",
+    tone_style: "",
     has_dialogue: true,
     has_voiceover: true
   },
   global_assets: { art_style_prompt: "", negative_prompt: "" },
-  database: { characters: [], locations: [], scenes: [] },
+  database: {
+    characters: [
+      {
+        id: "",
+        name: "",
+        role: "",
+        visual_details: {
+          age: "",
+          gender: "",
+          ethnicity: "",
+          hair: "",
+          eyes: "",
+          clothing: "",
+          accessories: "",
+          body_type: ""
+        },
+        visual_seed: {
+          description: "",
+          ref_image_url: ""
+        },
+        voice_specs: {
+          gender: "male",
+          age_group: "adult",
+          accent: "neutral",
+          pitch: 1.0,
+          speed: 1.0,
+          tone: "neutral"
+        }
+      }
+    ],
+    locations: [
+      {
+        id: "",
+        name: "",
+        description: "",
+        environment_prompt: "",
+        interior_exterior: "EXT",
+        lighting_default: "",
+        audio_ambiance: "",
+        ref_image_url: ""
+      }
+    ],
+    items: [
+      {
+        id: "",
+        name: "",
+        description: "",
+        type: "prop",
+        visual_details: "",
+        ref_image_url: ""
+      }
+    ],
+    scenes: [
+      {
+        scene_index: 0,
+        id: "",
+        slugline: "",
+        slugline_elements: { int_ext: "EXT.", location: "", time: "" },
+        narrative_goal: "",
+        estimated_duration_sec: 0,
+        location_ref_id: "",
+        shots: [
+          {
+            shot_index: 0,
+            id: "",
+            duration_sec: 0,
+            composition: {
+              shot_type: "Wide Shot",
+              camera_movement: "Static",
+              angle: "Eye Level",
+              focal_length: "",
+              depth_of_field: ""
+            },
+            content: {
+              ui_description: "",
+              characters_in_shot: [],
+              items_in_shot: [],
+              final_image_prompt: "",
+              video_motion_prompt: "",
+              veo_elements: {
+                cinematography: "",
+                subject_context: "",
+                action: "",
+                style_ambiance: "",
+                audio_prompt: "",
+                negative_prompt: ""
+              }
+            },
+            audio: {
+              audio_context: "",
+              is_voice_over: false,
+              dialogue: [],
+              specificAudioCues: ""
+            },
+            video_generation: { status: "pending" }
+          }
+        ]
+      }
+    ]
+  },
   final_render: { total_duration_sec: 0 }
 };
 
@@ -251,21 +350,21 @@ const App: React.FC = () => {
     };
   }, [isDebugWindow]);
 
-  // Point #1: Log empty structure when on Step 1 (index 0)
+  // Point #1: Log empty structure on mount
   useEffect(() => {
-    if (state.step === 0 && !isDebugWindow) {
-      console.log("Step 1 Active - Logging Empty Project Backbone");
+    if (!isDebugWindow) {
+      console.log("App Mounted - Logging Empty Project Backbone");
       const newLog: LogEntry = {
         id: crypto.randomUUID(),
         type: 'info',
-        title: 'Step 1: Empty Project Backbone',
+        title: 'Initial State: Empty Project Backbone',
         data: EMPTY_PROJECT_BACKBONE,
         timestamp: Date.now()
       };
       setLogs(prev => [...prev, newLog]);
       broadcastChannelRef.current?.postMessage({ type: 'LOG_UPDATE', payload: newLog });
     }
-  }, [state.step, isDebugWindow]);
+  }, [isDebugWindow]);
 
   useEffect(() => {
     if ((debugMode || isDebugWindow) && logEndRef.current) {
