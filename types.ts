@@ -183,7 +183,8 @@ export enum AgentRole {
   SCREENWRITER = 'Screenwriter',
   REVIEWER = 'Reviewer',
   DESIGNER = 'Designer',
-  ANALYST = 'Analyst'
+  ANALYST = 'Analyst',
+  VIDEOGRAPHER = 'Videographer'
 }
 
 export interface AgentMessage {

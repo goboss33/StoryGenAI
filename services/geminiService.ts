@@ -59,6 +59,32 @@ class AgentManager {
     return this.agents.get(role)!;
   }
 
+  public updateAgentSystemInstruction(role: AgentRole, newInstruction: string) {
+    console.log(`[AgentManager ${this.id}] Updating system instruction for ${role}`);
+    // Clear existing agent and history
+    this.agents.delete(role);
+    this.messageHistory.set(role, []);
+
+    // Re-create with new instruction
+    const modelName = "gemini-2.0-flash-exp";
+    const model = genAI.getGenerativeModel({ model: modelName });
+    this.getAgent(role, model, newInstruction, { model: modelName, finalPrompt: newInstruction });
+  }
+
+  public resetAgent(role: AgentRole) {
+    console.log(`[AgentManager ${this.id}] Resetting agent: ${role}`);
+    this.agents.delete(role);
+    this.messageHistory.set(role, []);
+    // Notify listeners (optional, but good for UI to clear)
+    this.notifyListeners(role, {
+      id: crypto.randomUUID(),
+      role: 'system',
+      agentRole: role,
+      content: '[MEMORY RESET]',
+      timestamp: Date.now()
+    });
+  }
+
   public subscribe(listener: (role: AgentRole, message: AgentMessage) => void) {
     console.log(`[AgentManager ${this.id}] New subscriber added. Total listeners: ${this.listeners.length + 1}`);
     this.listeners.push(listener);
@@ -96,15 +122,15 @@ class AgentManager {
     return this.agents.get(role);
   }
 
-  public async sendMessage(role: AgentRole, session: ChatSession, text: string, metadata?: { model?: string; dynamicPrompt?: string; finalPrompt?: string; data?: any; messageId?: string }): Promise<string> {
-    console.log(`[AgentManager ${this.id}] sendMessage for ${role}: "${text.slice(0, 50)}..."`);
+  public async sendMessage(role: AgentRole, session: ChatSession, text: string, images: string[] = [], metadata?: { model?: string; dynamicPrompt?: string; finalPrompt?: string; data?: any; messageId?: string }): Promise<string> {
+    console.log(`[AgentManager ${this.id}] sendMessage for ${role}: "${text.slice(0, 50)}..." with ${images.length} images`);
 
     // Log User Message
     const userMsg: AgentMessage = {
       id: metadata?.messageId || crypto.randomUUID(),
       role: 'user',
       agentRole: role,
-      content: text,
+      content: text + (images.length > 0 ? ` [${images.length} Image(s) Attached]` : ''),
       timestamp: Date.now(),
       // Attach prompt metadata to the user message (request)
       model: metadata?.model,
@@ -114,7 +140,20 @@ class AgentManager {
     this.addMessageToHistory(role, userMsg);
     this.notifyListeners(role, userMsg);
 
-    const result = await session.sendMessage(text);
+    // Prepare parts for Gemini
+    const parts: any[] = [{ text }];
+    images.forEach(base64 => {
+      // Remove data URL prefix if present
+      const cleanBase64 = base64.replace(/^data:image\/\w+;base64,/, "");
+      parts.push({
+        inlineData: {
+          data: cleanBase64,
+          mimeType: "image/png" // Assuming PNG for now, or detect from base64 header
+        }
+      });
+    });
+
+    const result = await session.sendMessage(parts);
     const responseText = result.response.text();
 
     // Try to parse JSON data from response
@@ -161,7 +200,7 @@ export const getAgentHistory = (role: AgentRole) => {
   return AgentManager.getInstance().getHistory(role);
 };
 
-export const chatWithAgent = async (role: AgentRole, message: string): Promise<string> => {
+export const chatWithAgent = async (role: AgentRole, message: string, images: string[] = []): Promise<string> => {
   const manager = AgentManager.getInstance();
   let session = manager.getExistingAgent(role);
 
@@ -172,7 +211,15 @@ export const chatWithAgent = async (role: AgentRole, message: string): Promise<s
     session = manager.getAgent(role, model, `You are the ${role}. Waiting for project context...`);
   }
 
-  return manager.sendMessage(role, session, message);
+  return manager.sendMessage(role, session, message, images);
+};
+
+export const updateAgentSystemInstruction = (role: AgentRole, instruction: string) => {
+  AgentManager.getInstance().updateAgentSystemInstruction(role, instruction);
+};
+
+export const resetAgentMemory = (role: AgentRole) => {
+  AgentManager.getInstance().resetAgent(role);
 };
 
 // --- AGENTIC WORKFLOW: STEP 0 - SMART ANALYSIS (ANALYST AGENT) ---
