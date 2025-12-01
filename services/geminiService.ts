@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI, ChatSession } from "@google/generative-ai";
 import { Scene, Asset, AssetType, Pacing, RefineQuestion, ProjectBackbone, AssetChangeAnalysis, SceneTemplate, AgentRole, AgentMessage } from "../types";
+import { DEFAULT_SYSTEM_INSTRUCTIONS } from './prompts';
 import { generateReplicateImage } from './replicateService';
 
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY || (process.env.GEMINI_API_KEY as string);
@@ -66,7 +67,7 @@ class AgentManager {
     this.messageHistory.set(role, []);
 
     // Re-create with new instruction
-    const modelName = "gemini-2.0-flash-exp";
+    const modelName = "gemini-2.5-flash";
     const model = genAI.getGenerativeModel({ model: modelName });
     this.getAgent(role, model, newInstruction, { model: modelName, finalPrompt: newInstruction });
   }
@@ -206,7 +207,7 @@ export const chatWithAgent = async (role: AgentRole, message: string, images: st
 
   if (!session) {
     // Create a generic session if not found
-    const modelName = "gemini-2.0-flash-exp";
+    const modelName = "gemini-2.5-flash";
     const model = genAI.getGenerativeModel({ model: modelName });
     session = manager.getAgent(role, model, `You are the ${role}. Waiting for project context...`);
   }
@@ -227,21 +228,9 @@ export const extractStoryManifest = async (
   idea: string,
   settings: { language: string }
 ): Promise<import("../types").StoryManifest> => {
-  const systemInstruction = `
-    Role: Senior Script Analyst.
-    Task: Deconstruct the user's raw story idea into a structured manifest.
-    Goal: Extract explicit constraints (Characters, Locations, Plot) to ensure the Director respects the user's specific vision.
-    
-    INSTRUCTIONS:
-    1. **Pitch**: Summarize the core concept in one sentence.
-    2. **Entities**: Extract every character and location explicitly mentioned.
-       - If the user says "A fox with a bushy tail", capture "Fox" + "Bushy tail".
-       - Do NOT invent characters or locations not implied by the text.
-    3. **Plot**: If the user describes a sequence of events, list them.
-    4. **Output JSON only**.
-  `;
+  const systemInstruction = DEFAULT_SYSTEM_INSTRUCTIONS[AgentRole.ANALYST];
 
-  const modelName = "gemini-2.0-flash-exp";
+  const modelName = "gemini-2.5-flash";
   const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "application/json" } });
 
   const agentManager = AgentManager.getInstance();
@@ -296,19 +285,9 @@ export const analyzeStoryConcept = async (
   // 1. Run Smart Analysis first
   const manifest = await extractStoryManifest(idea, { language: settings.language });
 
-  const systemInstruction = `
-    Role: Creative Director & Showrunner.
-    Task: You are responsible for the initial vision of the video project.
-    
-    Responsibilities:
-    1. Analyze the user's raw idea AND the Analyst's Manifest.
-    2. Define the "Project Backbone": Structure, Characters, Locations, Scene List.
-    3. **CRITICAL**: You MUST use the Characters and Locations defined in the Manifest. Do not reinvent them. You can add more if needed, but respect the user's explicit choices.
-    4. Ensure the tone and style are consistent.
-    5. Output strictly valid JSON when requested.
-  `;
+  const systemInstruction = DEFAULT_SYSTEM_INSTRUCTIONS[AgentRole.DIRECTOR];
 
-  const modelName = "gemini-2.0-flash-exp";
+  const modelName = "gemini-2.5-flash";
   const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "application/json" } });
 
   // Get or Create DIRECTOR Agent
@@ -407,31 +386,11 @@ export const generateScreenplay = async (
 
     logDebug('info', 'Agentic Workflow', { step: '3. Generating Screenplay (Screenwriter Agent)', sceneCount: scenes.length });
 
-    const modelName = "gemini-2.0-flash-exp";
+    const modelName = "gemini-2.5-flash";
     const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "application/json" } });
 
     // 1. Initialize Screenwriter Agent with Project Bible
-    const projectBibleTemplate = `
-      Role: Professional Screenwriter.
-      Task: You are writing a screenplay for a video project. You will receive scene details one by one.
-      
-      PROJECT CONTEXT (THE BIBLE):
-      Title: {{title}}
-      Tone: {{tone}}
-      Intent: {{intent}}
-      Language: {{language}}
-      
-      CHARACTERS:
-      {{characters}}
-      
-      LOCATIONS:
-      {{locations}}
-
-      INSTRUCTIONS:
-      1. Maintain consistency with previous scenes (you have full memory).
-      2. Write in standard screenplay format.
-      3. Output JSON only.
-    `;
+    const projectBibleTemplate = DEFAULT_SYSTEM_INSTRUCTIONS[AgentRole.SCREENWRITER];
 
     const projectBible = projectBibleTemplate
       .replace(/{{title}}/g, meta_data.title)
@@ -928,7 +887,7 @@ const generateSceneShots = async (
     // INTERCEPT FOR REVIEW
     const finalPrompt = await checkReviewMode(template, `Generate Shots: ${scene.slugline}`);
 
-    const modelName = "gemini-2.0-flash-exp";
+    const modelName = "gemini-2.5-flash";
     const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "application/json" } });
 
     const result = await model.generateContent(finalPrompt);
@@ -1030,7 +989,7 @@ export const populateScriptAudio = async (
     // INTERCEPT FOR REVIEW
     prompt = await checkReviewMode(prompt, 'Populate Script Audio');
 
-    const modelName = "gemini-2.0-flash-exp";
+    const modelName = "gemini-2.5-flash";
     const model = genAI.getGenerativeModel({
       model: modelName,
       generationConfig: {
@@ -1181,7 +1140,7 @@ export const generateScript = async (
     // INTERCEPT FOR REVIEW
     prompt = await checkReviewMode(prompt, 'Generate Script');
 
-    const modelName = "gemini-2.0-flash-exp";
+    const modelName = "gemini-2.5-flash";
     const model = genAI.getGenerativeModel({
       model: modelName,
       generationConfig: {
@@ -1490,19 +1449,10 @@ export const generateAssetImage = async (
   const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "application/json" } });
 
   // 1. Initialize Designer Agent
-  const designerSystemPrompt = `
-    Role: Professional Visual Designer & Concept Artist.
-    Task: You create detailed, photorealistic image prompts for AI image generators (Flux/Midjourney).
-    Context: Working on a video project titled "${projectContext.title}".
-    Style: ${projectContext.style}.
-    Tone: ${projectContext.tone}.
-
-    INSTRUCTIONS:
-    1. Analyze the provided asset (Character or Location).
-    2. Write a single, highly detailed image prompt.
-    3. Focus on lighting, texture, composition, and mood.
-    4. OUTPUT JSON ONLY: { "prompt": "your detailed prompt here" }
-  `;
+  const designerSystemPrompt = DEFAULT_SYSTEM_INSTRUCTIONS[AgentRole.DESIGNER]
+    .replace('{{title}}', projectContext.title)
+    .replace('{{style}}', projectContext.style)
+    .replace('{{tone}}', projectContext.tone);
 
   // We use a stateless approach for the designer for now, or we could persist it.
   // Let's persist it to keep history of generated assets.
@@ -1552,4 +1502,61 @@ export const generateAssetImage = async (
   logDebug('res', `Designer Agent: Image Generated`, { imageUrl });
 
   return imageUrl;
+};
+
+
+// --- 16. Generate Veo Prompt (Videographer Agent) ---
+export const generateVeoPrompt = async (
+  shot: import("../types").ShotTemplate,
+  sceneContext: string,
+  style: string
+): Promise<string> => {
+  const agentManager = AgentManager.getInstance();
+  const modelName = "gemini-2.5-flash";
+  const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "text/plain" } });
+
+  const systemInstruction = DEFAULT_SYSTEM_INSTRUCTIONS[AgentRole.VIDEOGRAPHER];
+
+  // Get or Create VIDEOGRAPHER Agent
+  const chatSession = agentManager.getAgent(AgentRole.VIDEOGRAPHER, model, systemInstruction, {
+    model: modelName,
+    dynamicPrompt: systemInstruction,
+    finalPrompt: systemInstruction
+  });
+
+  const prompt = `
+    INPUT DATA:
+    - Shot Type: ${shot.composition.shot_type}
+    - Camera Movement: ${shot.composition.camera_movement}
+    - Action Description: ${shot.content.ui_description}
+    - Scene Context: ${sceneContext}
+    - Style: ${style}
+    - Dialogue: ${shot.audio.dialogue?.map(d => `"${d.text}"`).join(' ') || "None"}
+    - SFX: ${shot.audio.specificAudioCues || "None"}
+  `;
+
+  // INTERCEPT FOR REVIEW
+  const finalPrompt = await checkReviewMode(prompt, 'Videographer: Generate Prompt');
+
+  const messageId = crypto.randomUUID();
+  logDebug('req', 'Videographer Agent: Generate Prompt', { shotId: shot.id }, {
+    model: modelName,
+    finalPrompt: finalPrompt,
+    agentRole: AgentRole.VIDEOGRAPHER,
+    linkedMessageId: messageId
+  });
+
+  const text = await agentManager.sendMessage(AgentRole.VIDEOGRAPHER, chatSession, finalPrompt, [], {
+    model: modelName,
+    finalPrompt: finalPrompt,
+    dynamicPrompt: prompt,
+    messageId: messageId
+  });
+
+  logDebug('res', 'Videographer Agent: Prompt Generated', { text }, {
+    agentRole: AgentRole.VIDEOGRAPHER,
+    linkedMessageId: messageId
+  });
+
+  return text.trim();
 };

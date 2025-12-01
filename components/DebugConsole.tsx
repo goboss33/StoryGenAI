@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { UsageStats, PendingRequestData, subscribeToAgentMessages, getAgentHistory, chatWithAgent, updateAgentSystemInstruction, resetAgentMemory } from '../services/geminiService';
+import { DEFAULT_SYSTEM_INSTRUCTIONS } from '../services/prompts';
 import { AgentRole, AgentMessage } from '../types';
 
 interface LogEntry {
@@ -403,7 +404,7 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
         [AgentRole.DIRECTOR]: [],
         [AgentRole.SCREENWRITER]: [],
         [AgentRole.REVIEWER]: [],
-        [AgentRole.REVIEWER]: [],
+
         [AgentRole.DESIGNER]: [],
         [AgentRole.ANALYST]: [],
         [AgentRole.VIDEOGRAPHER]: []
@@ -460,13 +461,27 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
         }
     };
 
+    // Sync System Prompt when switching tabs
+    useEffect(() => {
+        if (activeTab !== 'SYSTEM') {
+            // Find the system message for this agent
+            const history = agentMessages[activeTab as AgentRole] || [];
+            const sysMsg = history.find(m => m.role === 'system');
+            if (sysMsg) {
+                setSystemPrompt(sysMsg.content);
+            } else {
+                // Fallback to default system prompt if not initialized
+                setSystemPrompt(DEFAULT_SYSTEM_INSTRUCTIONS[activeTab as AgentRole] || "");
+            }
+        }
+    }, [activeTab, agentMessages]);
+
     // Subscribe to Agent Messages & Load History
     useEffect(() => {
         // Load initial history
         setAgentMessages({
             [AgentRole.DIRECTOR]: getAgentHistory(AgentRole.DIRECTOR),
             [AgentRole.SCREENWRITER]: getAgentHistory(AgentRole.SCREENWRITER),
-            [AgentRole.REVIEWER]: getAgentHistory(AgentRole.REVIEWER),
             [AgentRole.REVIEWER]: getAgentHistory(AgentRole.REVIEWER),
             [AgentRole.DESIGNER]: getAgentHistory(AgentRole.DESIGNER),
             [AgentRole.ANALYST]: getAgentHistory(AgentRole.ANALYST),
