@@ -181,10 +181,9 @@ export const TARGET_AUDIENCES = [
 export enum AgentRole {
   DIRECTOR = 'Director',
   SCREENWRITER = 'Screenwriter',
-  REVIEWER = 'Reviewer',
   DESIGNER = 'Designer',
   ANALYST = 'Analyst',
-  VIDEOGRAPHER = 'Videographer'
+  PROMPT_ENGINEER_VEO = 'Prompt Engineer Veo 3.1'
 }
 
 export interface AgentMessage {

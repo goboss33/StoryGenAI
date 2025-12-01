@@ -468,10 +468,6 @@ export const generateScreenplay = async (
           .replace(/{{goal}}/g, scene.synopsis ? `${scene.synopsis} (Goal: ${scene.narrative_goal})` : scene.narrative_goal)
           .replace(/{{duration}}/g, scene.estimated_duration_sec.toString());
 
-        if (feedbackHistory.length > 0) {
-          scenePrompt += `\n\n[CRITICAL FEEDBACK FROM PREVIOUS ATTEMPT]:\n${feedbackHistory.join('\n')}\n\nPLEASE FIX THE ISSUES ABOVE.`;
-        }
-
         try {
           // INTERCEPT FOR REVIEW
           const finalPrompt = await checkReviewMode(scenePrompt, `Screenwriter: Scene ${scene.slugline} (Attempt ${attempts})`);
@@ -501,65 +497,14 @@ export const generateScreenplay = async (
 
           trackUsage(modelName, finalPrompt.length / 4, text.length / 4);
 
-          // --- REVIEWER AGENT LOOP ---
-          const { reviewScene } = await import('./reviewerService'); // Lazy import to avoid circular deps if any
-          const reviewResult = reviewScene(
-            { lines: content.lines || [] },
-            scene.estimated_duration_sec
-          );
-
-          // Log Reviewer Action
-          const reviewerMsgId = crypto.randomUUID();
-          const reviewerLogTitle = reviewResult.approved ? "Reviewer Agent: APPROVED" : "Reviewer Agent: REJECTED";
-
-          logDebug('info', reviewerLogTitle, {
-            targetDuration: scene.estimated_duration_sec,
-            estimatedDuration: reviewResult.estimatedDuration,
-            feedback: reviewResult.feedback,
-            details: reviewResult
-          }, {
-            agentRole: AgentRole.REVIEWER,
-            linkedMessageId: reviewerMsgId
-          });
-
-          // Inject Reviewer Message into History (Simulated)
-          agentManager.injectMessage(AgentRole.REVIEWER, {
-            id: reviewerMsgId,
-            role: 'system', // Or 'model' acting as reviewer
-            agentRole: AgentRole.REVIEWER,
-            content: reviewResult.feedback,
-            timestamp: Date.now(),
-            data: reviewResult
-          });
-
-          if (reviewResult.approved) {
-            const newScene = {
-              ...scene,
-              script_content: {
-                lines: Array.isArray(content.lines) ? content.lines.map((l: any) => ({ ...l, id: crypto.randomUUID() })) : []
-              }
-            };
-            updatedScenes.push(newScene);
-            break; // Success! Exit retry loop
-          } else {
-            // REJECTED
-            feedbackHistory.push(reviewResult.feedback);
-
-            // Inject rejection into Screenwriter's memory so it knows why it failed
-            await agentManager.sendMessage(AgentRole.SCREENWRITER, chatSession, `[SYSTEM: The previous scene was REJECTED by the Reviewer. Feedback: ${reviewResult.feedback}. Please try again.]`);
-
-            if (attempts === MAX_ATTEMPTS) {
-              console.warn(`Scene ${scene.slugline} failed after ${MAX_ATTEMPTS} attempts. Keeping last result.`);
-              // Fallback: Keep the last attempt even if rejected, to avoid crashing
-              const newScene = {
-                ...scene,
-                script_content: {
-                  lines: Array.isArray(content.lines) ? content.lines.map((l: any) => ({ ...l, id: crypto.randomUUID() })) : []
-                }
-              };
-              updatedScenes.push(newScene);
+          const newScene = {
+            ...scene,
+            script_content: {
+              lines: Array.isArray(content.lines) ? content.lines.map((l: any) => ({ ...l, id: crypto.randomUUID() })) : []
             }
-          }
+          };
+          updatedScenes.push(newScene);
+          break; // Success!
 
         } catch (error) {
           console.error(`Failed to generate scene ${scene.slugline}`, error);
@@ -1533,7 +1478,11 @@ export const generateAssetImage = async (
 
 
 // --- 16. Generate Veo Prompt (Videographer Agent) ---
-export const generateVeoPrompt = async (
+
+
+
+// --- 16. Generate Veo Prompt (Videographer Agent) ---
+export const generateVideoPrompt = async (
   shot: import("../types").ShotTemplate,
   sceneContext: string,
   style: string
@@ -1542,10 +1491,10 @@ export const generateVeoPrompt = async (
   const modelName = "gemini-2.5-flash";
   const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "text/plain" } });
 
-  const systemInstruction = DEFAULT_SYSTEM_INSTRUCTIONS[AgentRole.VIDEOGRAPHER];
+  const systemInstruction = DEFAULT_SYSTEM_INSTRUCTIONS[AgentRole.PROMPT_ENGINEER_VEO];
 
-  // Get or Create VIDEOGRAPHER Agent
-  const chatSession = agentManager.getAgent(AgentRole.VIDEOGRAPHER, model, systemInstruction, {
+  // Get or Create PROMPT_ENGINEER_VEO Agent
+  const chatSession = agentManager.getAgent(AgentRole.PROMPT_ENGINEER_VEO, model, systemInstruction, {
     model: modelName,
     dynamicPrompt: systemInstruction,
     finalPrompt: systemInstruction
@@ -1563,25 +1512,25 @@ export const generateVeoPrompt = async (
   `;
 
   // INTERCEPT FOR REVIEW
-  const finalPrompt = await checkReviewMode(prompt, 'Videographer: Generate Prompt');
+  const finalPrompt = await checkReviewMode(prompt, 'Prompt Engineer Veo: Generate Prompt');
 
   const messageId = crypto.randomUUID();
-  logDebug('req', 'Videographer Agent: Generate Prompt', { shotId: shot.id }, {
+  logDebug('req', 'Prompt Engineer Veo Agent: Generate Prompt', { shotId: shot.id }, {
     model: modelName,
     finalPrompt: finalPrompt,
-    agentRole: AgentRole.VIDEOGRAPHER,
+    agentRole: AgentRole.PROMPT_ENGINEER_VEO,
     linkedMessageId: messageId
   });
 
-  const text = await agentManager.sendMessage(AgentRole.VIDEOGRAPHER, chatSession, finalPrompt, [], {
+  const text = await agentManager.sendMessage(AgentRole.PROMPT_ENGINEER_VEO, chatSession, finalPrompt, [], {
     model: modelName,
     finalPrompt: finalPrompt,
     dynamicPrompt: prompt,
     messageId: messageId
   });
 
-  logDebug('res', 'Videographer Agent: Prompt Generated', { text }, {
-    agentRole: AgentRole.VIDEOGRAPHER,
+  logDebug('res', 'Prompt Engineer Veo Agent: Prompt Generated', { text }, {
+    agentRole: AgentRole.PROMPT_ENGINEER_VEO,
     linkedMessageId: messageId
   });
 

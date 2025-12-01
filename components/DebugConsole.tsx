@@ -143,10 +143,10 @@ const LogItem: React.FC<{ log: LogEntry; isSummary?: boolean; onClick?: () => vo
     const getIcon = () => {
         if (log.agentRole === AgentRole.DIRECTOR || log.title.includes("Director")) return "🎬";
         if (log.agentRole === AgentRole.SCREENWRITER || log.title.includes("Screenwriter")) return "✍️";
-        if (log.agentRole === AgentRole.REVIEWER || log.title.includes("Reviewer")) return "⚖️";
+
         if (log.agentRole === AgentRole.DESIGNER || log.title.includes("Designer")) return "🎨";
         if (log.agentRole === AgentRole.ANALYST || log.title.includes("Analyst")) return "🧐";
-        if (log.agentRole === AgentRole.VIDEOGRAPHER || log.title.includes("Videographer")) return "🎥";
+        if (log.agentRole === AgentRole.PROMPT_ENGINEER_VEO || log.title.includes("Prompt Engineer")) return "🎥";
         return null;
     };
     const icon = getIcon();
@@ -403,11 +403,11 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
     const [agentMessages, setAgentMessages] = useState<Record<AgentRole, AgentMessage[]>>({
         [AgentRole.DIRECTOR]: [],
         [AgentRole.SCREENWRITER]: [],
-        [AgentRole.REVIEWER]: [],
+
 
         [AgentRole.DESIGNER]: [],
         [AgentRole.ANALYST]: [],
-        [AgentRole.VIDEOGRAPHER]: []
+        [AgentRole.PROMPT_ENGINEER_VEO]: []
     });
     const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
     const [chatInput, setChatInput] = useState("");
@@ -482,10 +482,10 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
         setAgentMessages({
             [AgentRole.DIRECTOR]: getAgentHistory(AgentRole.DIRECTOR),
             [AgentRole.SCREENWRITER]: getAgentHistory(AgentRole.SCREENWRITER),
-            [AgentRole.REVIEWER]: getAgentHistory(AgentRole.REVIEWER),
+
             [AgentRole.DESIGNER]: getAgentHistory(AgentRole.DESIGNER),
             [AgentRole.ANALYST]: getAgentHistory(AgentRole.ANALYST),
-            [AgentRole.VIDEOGRAPHER]: getAgentHistory(AgentRole.VIDEOGRAPHER)
+            [AgentRole.PROMPT_ENGINEER_VEO]: getAgentHistory(AgentRole.PROMPT_ENGINEER_VEO)
         });
 
         const unsubscribe = subscribeToAgentMessages((role, message) => {
@@ -623,12 +623,6 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
                     ✍️ Screenwriter
                 </button>
                 <button
-                    onClick={() => { setActiveTab(AgentRole.REVIEWER); setHighlightedMessageId(null); }}
-                    className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors ${activeTab === AgentRole.REVIEWER ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
-                >
-                    ⚖️ Reviewer
-                </button>
-                <button
                     onClick={() => { setActiveTab(AgentRole.DESIGNER); setHighlightedMessageId(null); }}
                     className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors ${activeTab === AgentRole.DESIGNER ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
                 >
@@ -641,56 +635,60 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
                     🧐 Analyst
                 </button>
                 <button
-                    onClick={() => { setActiveTab(AgentRole.VIDEOGRAPHER); setHighlightedMessageId(null); }}
-                    className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors ${activeTab === AgentRole.VIDEOGRAPHER ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
+                    onClick={() => { setActiveTab(AgentRole.PROMPT_ENGINEER_VEO); setHighlightedMessageId(null); }}
+                    className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors ${activeTab === AgentRole.PROMPT_ENGINEER_VEO ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
                 >
-                    🎥 Videographer
+                    🎥 Prompt Engineer Veo 3.1
                 </button>
             </div>
 
             {/* AGENT SETTINGS BAR (System Prompt & Reset) */}
-            {activeTab !== 'SYSTEM' && (
-                <div className="bg-slate-900 border-b border-slate-800 px-4 py-2 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
+            {
+                activeTab !== 'SYSTEM' && (
+                    <div className="bg-slate-900 border-b border-slate-800 px-4 py-2 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => setIsSystemPromptOpen(!isSystemPromptOpen)}
+                                className="text-[10px] font-bold uppercase text-slate-400 hover:text-indigo-400 flex items-center gap-1 transition-colors"
+                            >
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                                {isSystemPromptOpen ? 'Hide System Prompt' : 'Edit System Prompt'}
+                            </button>
+                        </div>
                         <button
-                            onClick={() => setIsSystemPromptOpen(!isSystemPromptOpen)}
-                            className="text-[10px] font-bold uppercase text-slate-400 hover:text-indigo-400 flex items-center gap-1 transition-colors"
+                            onClick={handleResetMemory}
+                            className="text-[10px] font-bold uppercase text-red-500 hover:text-red-400 flex items-center gap-1 transition-colors"
+                            title="Clear Agent Memory"
                         >
-                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                            {isSystemPromptOpen ? 'Hide System Prompt' : 'Edit System Prompt'}
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                            Reset Memory
                         </button>
                     </div>
-                    <button
-                        onClick={handleResetMemory}
-                        className="text-[10px] font-bold uppercase text-red-500 hover:text-red-400 flex items-center gap-1 transition-colors"
-                        title="Clear Agent Memory"
-                    >
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                        Reset Memory
-                    </button>
-                </div>
-            )}
+                )
+            }
 
             {/* SYSTEM PROMPT EDITOR */}
-            {activeTab !== 'SYSTEM' && isSystemPromptOpen && (
-                <div className="p-4 bg-slate-950 border-b border-slate-800 animate-in slide-in-from-top-2 duration-200">
-                    <label className="block text-[10px] font-bold uppercase text-slate-500 mb-2">System Instructions (Persona & Rules)</label>
-                    <textarea
-                        value={systemPrompt}
-                        onChange={(e) => setSystemPrompt(e.target.value)}
-                        placeholder="Enter system instructions..."
-                        className="w-full h-32 bg-slate-900 border border-slate-700 rounded p-2 text-xs text-slate-300 font-mono focus:outline-none focus:border-indigo-500 resize-none mb-2"
-                    />
-                    <div className="flex justify-end">
-                        <button
-                            onClick={handleUpdateSystemPrompt}
-                            className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold uppercase rounded transition-colors"
-                        >
-                            Update & Restart Agent
-                        </button>
+            {
+                activeTab !== 'SYSTEM' && isSystemPromptOpen && (
+                    <div className="p-4 bg-slate-950 border-b border-slate-800 animate-in slide-in-from-top-2 duration-200">
+                        <label className="block text-[10px] font-bold uppercase text-slate-500 mb-2">System Instructions (Persona & Rules)</label>
+                        <textarea
+                            value={systemPrompt}
+                            onChange={(e) => setSystemPrompt(e.target.value)}
+                            placeholder="Enter system instructions..."
+                            className="w-full h-32 bg-slate-900 border border-slate-700 rounded p-2 text-xs text-slate-300 font-mono focus:outline-none focus:border-indigo-500 resize-none mb-2"
+                        />
+                        <div className="flex justify-end">
+                            <button
+                                onClick={handleUpdateSystemPrompt}
+                                className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold uppercase rounded transition-colors"
+                            >
+                                Update & Restart Agent
+                            </button>
+                        </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             {/* Logs Area */}
             <div className="flex-1 overflow-y-auto px-6 py-4 font-mono text-xs space-y-3 custom-scrollbar relative bg-slate-900">
@@ -726,99 +724,103 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
             </div>
 
             {/* CHAT INPUT AREA (Only for Agents) */}
-            {activeTab !== 'SYSTEM' && (
-                <div className="p-3 bg-slate-950 border-t border-slate-800 flex flex-col gap-2 flex-shrink-0">
-                    {/* Attached Images Preview */}
-                    {attachedImages.length > 0 && (
-                        <div className="flex gap-2 overflow-x-auto pb-2">
-                            {attachedImages.map((img, idx) => (
-                                <div key={idx} className="relative group flex-shrink-0">
-                                    <img src={img} alt="Attachment" className="h-12 w-12 object-cover rounded border border-slate-700" />
-                                    <button
-                                        onClick={() => setAttachedImages(prev => prev.filter((_, i) => i !== idx))}
-                                        className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
-                                    >
-                                        ×
-                                    </button>
-                                </div>
-                            ))}
+            {
+                activeTab !== 'SYSTEM' && (
+                    <div className="p-3 bg-slate-950 border-t border-slate-800 flex flex-col gap-2 flex-shrink-0">
+                        {/* Attached Images Preview */}
+                        {attachedImages.length > 0 && (
+                            <div className="flex gap-2 overflow-x-auto pb-2">
+                                {attachedImages.map((img, idx) => (
+                                    <div key={idx} className="relative group flex-shrink-0">
+                                        <img src={img} alt="Attachment" className="h-12 w-12 object-cover rounded border border-slate-700" />
+                                        <button
+                                            onClick={() => setAttachedImages(prev => prev.filter((_, i) => i !== idx))}
+                                            className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
+                                        >
+                                            ×
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        <div className="flex gap-2">
+                            {/* Image Upload Button */}
+                            <label className="cursor-pointer text-slate-500 hover:text-indigo-400 transition-colors p-2 rounded hover:bg-slate-900 flex items-center justify-center" title="Attach Image">
+                                <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                            </label>
+
+                            <textarea
+                                value={chatInput}
+                                onChange={(e) => setChatInput(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && !e.shiftKey) {
+                                        e.preventDefault();
+                                        handleSendMessage();
+                                    }
+                                }}
+                                placeholder={`Message ${activeTab}...`}
+                                className="flex-1 bg-slate-900 border border-slate-700 rounded p-2 text-xs text-slate-300 focus:outline-none focus:border-indigo-500 resize-none h-10 custom-scrollbar"
+                            />
+                            <button
+                                onClick={handleSendMessage}
+                                disabled={isSending || (!chatInput.trim() && attachedImages.length === 0)}
+                                className="px-4 rounded bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold uppercase transition-colors"
+                            >
+                                {isSending ? '...' : 'Send'}
+                            </button>
                         </div>
-                    )}
-
-                    <div className="flex gap-2">
-                        {/* Image Upload Button */}
-                        <label className="cursor-pointer text-slate-500 hover:text-indigo-400 transition-colors p-2 rounded hover:bg-slate-900 flex items-center justify-center" title="Attach Image">
-                            <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                        </label>
-
-                        <textarea
-                            value={chatInput}
-                            onChange={(e) => setChatInput(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter' && !e.shiftKey) {
-                                    e.preventDefault();
-                                    handleSendMessage();
-                                }
-                            }}
-                            placeholder={`Message ${activeTab}...`}
-                            className="flex-1 bg-slate-900 border border-slate-700 rounded p-2 text-xs text-slate-300 focus:outline-none focus:border-indigo-500 resize-none h-10 custom-scrollbar"
-                        />
-                        <button
-                            onClick={handleSendMessage}
-                            disabled={isSending || (!chatInput.trim() && attachedImages.length === 0)}
-                            className="px-4 rounded bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold uppercase transition-colors"
-                        >
-                            {isSending ? '...' : 'Send'}
-                        </button>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             {/* REVIEW MODE OVERLAY */}
-            {pendingRequest && (
-                <div className="absolute inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex flex-col p-6 animate-in fade-in duration-200">
-                    <div className="bg-slate-950 border border-amber-500/50 rounded-lg shadow-2xl flex flex-col flex-1 overflow-hidden">
-                        {/* Header */}
-                        <div className="px-4 py-3 bg-slate-900 border-b border-slate-800 flex justify-between items-center">
-                            <div className="flex items-center gap-3">
-                                <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-                                <span className="text-amber-400 font-bold uppercase tracking-wider text-sm">Reviewing Request</span>
-                                <span className="text-slate-500 text-xs">|</span>
-                                <span className="text-slate-300 font-mono text-xs">{pendingRequest.title}</span>
+            {
+                pendingRequest && (
+                    <div className="absolute inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex flex-col p-6 animate-in fade-in duration-200">
+                        <div className="bg-slate-950 border border-amber-500/50 rounded-lg shadow-2xl flex flex-col flex-1 overflow-hidden">
+                            {/* Header */}
+                            <div className="px-4 py-3 bg-slate-900 border-b border-slate-800 flex justify-between items-center">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                                    <span className="text-amber-400 font-bold uppercase tracking-wider text-sm">Reviewing Request</span>
+                                    <span className="text-slate-500 text-xs">|</span>
+                                    <span className="text-slate-300 font-mono text-xs">{pendingRequest.title}</span>
+                                </div>
+                            </div>
+
+                            {/* Editor */}
+                            <div className="flex-1 p-4 flex flex-col gap-2">
+                                <label className="text-xs font-bold text-slate-500 uppercase">Final Prompt (Editable)</label>
+                                <textarea
+                                    value={editedPrompt}
+                                    onChange={(e) => setEditedPrompt(e.target.value)}
+                                    className="flex-1 bg-slate-900 border border-slate-700 rounded p-4 text-slate-300 font-mono text-xs focus:outline-none focus:border-amber-500/50 resize-none leading-relaxed"
+                                    spellCheck={false}
+                                />
+                            </div>
+
+                            {/* Footer Actions */}
+                            <div className="px-4 py-3 bg-slate-900 border-t border-slate-800 flex justify-end gap-3">
+                                <button
+                                    onClick={() => onRejectRequest(pendingRequest.id)}
+                                    className="px-4 py-2 rounded text-xs font-bold uppercase text-red-400 hover:bg-red-900/20 transition-colors"
+                                >
+                                    Cancel Request
+                                </button>
+                                <button
+                                    onClick={() => onResolveRequest(pendingRequest.id, editedPrompt)}
+                                    className="px-6 py-2 rounded bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold uppercase transition-colors shadow-lg shadow-amber-900/20"
+                                >
+                                    Send Request
+                                </button>
                             </div>
                         </div>
-
-                        {/* Editor */}
-                        <div className="flex-1 p-4 flex flex-col gap-2">
-                            <label className="text-xs font-bold text-slate-500 uppercase">Final Prompt (Editable)</label>
-                            <textarea
-                                value={editedPrompt}
-                                onChange={(e) => setEditedPrompt(e.target.value)}
-                                className="flex-1 bg-slate-900 border border-slate-700 rounded p-4 text-slate-300 font-mono text-xs focus:outline-none focus:border-amber-500/50 resize-none leading-relaxed"
-                                spellCheck={false}
-                            />
-                        </div>
-
-                        {/* Footer Actions */}
-                        <div className="px-4 py-3 bg-slate-900 border-t border-slate-800 flex justify-end gap-3">
-                            <button
-                                onClick={() => onRejectRequest(pendingRequest.id)}
-                                className="px-4 py-2 rounded text-xs font-bold uppercase text-red-400 hover:bg-red-900/20 transition-colors"
-                            >
-                                Cancel Request
-                            </button>
-                            <button
-                                onClick={() => onResolveRequest(pendingRequest.id, editedPrompt)}
-                                className="px-6 py-2 rounded bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold uppercase transition-colors shadow-lg shadow-amber-900/20"
-                            >
-                                Send Request
-                            </button>
-                        </div>
                     </div>
-                </div>
-            )}
-        </div>
+                )
+            }
+        </div >
     );
 };
 
