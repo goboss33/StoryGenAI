@@ -402,6 +402,7 @@ export interface SceneTemplate {
   };
   synopsis?: string;
   location_ref_id: string;
+  characters_in_scene: string[]; // IDs of characters present in the scene
   narrative_goal: string;
   estimated_duration_sec: number; // Total duration of the scene
   script_content?: {

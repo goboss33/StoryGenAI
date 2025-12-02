@@ -24,12 +24,13 @@ interface SortableSceneItemProps {
     scene: import('../types').SceneTemplate;
     index: number;
     locations: import('../types').LocationTemplate[];
+    characters: import('../types').CharacterTemplate[];
     onUpdate: (id: string, updates: Partial<import('../types').SceneTemplate>) => void;
     onRemove: (index: number) => void;
     isOverlay?: boolean;
 }
 
-const SortableSceneItem: React.FC<SortableSceneItemProps> = ({ scene, index, locations, onUpdate, onRemove, isOverlay }) => {
+const SortableSceneItem: React.FC<SortableSceneItemProps> = ({ scene, index, locations, characters, onUpdate, onRemove, isOverlay }) => {
     const {
         attributes,
         listeners,
@@ -47,8 +48,16 @@ const SortableSceneItem: React.FC<SortableSceneItemProps> = ({ scene, index, loc
     };
 
     // Find associated location image
-    const location = locations.find(l => l.id === scene.location_ref_id) ||
-        locations.find(l => scene.slugline.includes(l.name));
+    const location = locations.find(l => l.id === scene.location_ref_id);
+
+    // Toggle character presence
+    const toggleCharacter = (charId: string) => {
+        const currentIds = scene.characters_in_scene || [];
+        const newIds = currentIds.includes(charId)
+            ? currentIds.filter(id => id !== charId)
+            : [...currentIds, charId];
+        onUpdate(scene.id, { characters_in_scene: newIds });
+    };
 
     return (
         <div
@@ -115,10 +124,11 @@ const SortableSceneItem: React.FC<SortableSceneItemProps> = ({ scene, index, loc
                     placeholder="Describe what happens in this scene..."
                 />
 
-                {/* Footer: Duration & Location Thumb */}
-                <div className="flex justify-between items-center pt-1">
-                    <div className="flex items-center gap-3">
-                        <div className="flex items-center gap-1 bg-slate-100 px-2 py-1 rounded text-xs font-medium text-slate-600">
+                {/* Footer: Duration & Location Thumb & Characters */}
+                <div className="flex justify-between items-center pt-2">
+                    <div className="flex items-center gap-4">
+                        {/* Duration */}
+                        <div className="flex items-center gap-1 bg-slate-100 px-2 py-1 rounded text-xs font-medium text-slate-600" title="Estimated Duration">
                             <span>⏱️</span>
                             <input
                                 type="number"
@@ -129,21 +139,83 @@ const SortableSceneItem: React.FC<SortableSceneItemProps> = ({ scene, index, loc
                             <span>s</span>
                         </div>
 
-                        {location?.ref_image_url && (
-                            <div className="flex items-center gap-2 text-xs text-slate-400 bg-slate-50 px-2 py-1 rounded border border-slate-100">
-                                <img src={location.ref_image_url} alt="" className="w-4 h-4 rounded object-cover" />
-                                <span className="truncate max-w-[100px]">{location.name}</span>
-                            </div>
-                        )}
+                        {/* Location Selector (Blue Square Area) */}
+                        <div className="relative group/loc">
+                            <select
+                                value={scene.location_ref_id || ''}
+                                onChange={(e) => onUpdate(scene.id, { location_ref_id: e.target.value })}
+                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
+                                title="Select Location"
+                            >
+                                <option value="">Select Location...</option>
+                                {locations.map(l => (
+                                    <option key={l.id} value={l.id}>{l.name}</option>
+                                ))}
+                            </select>
+
+                            {location ? (
+                                <div className="relative">
+                                    {location.ref_image_url ? (
+                                        <img
+                                            src={location.ref_image_url}
+                                            alt={location.name}
+                                            className="w-8 h-8 rounded object-cover border border-slate-200 shadow-sm"
+                                        />
+                                    ) : (
+                                        <div className="w-8 h-8 rounded bg-slate-200 flex items-center justify-center text-xs border border-slate-300">
+                                            🏞️
+                                        </div>
+                                    )}
+                                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-slate-800 text-white text-xs rounded opacity-0 group-hover/loc:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-10">
+                                        {location.name}
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="w-8 h-8 rounded border-2 border-dashed border-slate-200 flex items-center justify-center text-slate-300 text-xs hover:border-indigo-300 transition-colors">
+                                    +
+                                </div>
+                            )}
+                        </div>
                     </div>
 
-                    <button
-                        onClick={() => onRemove(index)}
-                        className="text-slate-300 hover:text-red-500 transition-colors p-1"
-                        title="Delete Scene"
-                    >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                    </button>
+                    <div className="flex items-center gap-3">
+                        {/* Character Avatars (Green Circles Area) */}
+                        <div className="flex items-center">
+                            <div className="flex -space-x-2 mr-2">
+                                {characters.map((char) => {
+                                    const isPresent = scene.characters_in_scene?.includes(char.id);
+                                    return (
+                                        <button
+                                            key={char.id}
+                                            onClick={() => toggleCharacter(char.id)}
+                                            className={`relative group/char transition-all duration-200 ${isPresent ? 'z-10 scale-100 opacity-100' : 'z-0 scale-90 opacity-40 hover:opacity-70 hover:scale-95'}`}
+                                            title={isPresent ? `Remove ${char.name}` : `Add ${char.name}`}
+                                        >
+                                            {char.visual_seed.ref_image_url ? (
+                                                <img
+                                                    src={char.visual_seed.ref_image_url}
+                                                    alt={char.name}
+                                                    className={`w-8 h-8 rounded-full object-cover border-2 shadow-sm ${isPresent ? 'border-white ring-1 ring-indigo-100' : 'border-slate-200 grayscale'}`}
+                                                />
+                                            ) : (
+                                                <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center text-xs font-bold ${isPresent ? 'bg-indigo-100 border-white text-indigo-600' : 'bg-slate-100 border-slate-200 text-slate-400'}`}>
+                                                    {char.name.charAt(0)}
+                                                </div>
+                                            )}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        <button
+                            onClick={() => onRemove(index)}
+                            className="text-slate-300 hover:text-red-500 transition-colors p-1.5 hover:bg-red-50 rounded"
+                            title="Delete Scene"
+                        >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -213,6 +285,7 @@ const Step2Analysis: React.FC<Props> = ({
             narrative_goal: "",
             estimated_duration_sec: 15,
             location_ref_id: "",
+            characters_in_scene: [],
             shots: []
         };
         onUpdateAssets({ ...project.database, scenes: [...project.database.scenes, newScene] });
@@ -602,6 +675,7 @@ const Step2Analysis: React.FC<Props> = ({
                                         scene={scene}
                                         index={idx}
                                         locations={project.database.locations}
+                                        characters={project.database.characters}
                                         onUpdate={handleUpdateScene}
                                         onRemove={handleRemoveScene}
                                     />
@@ -614,6 +688,7 @@ const Step2Analysis: React.FC<Props> = ({
                                     scene={activeDragScene}
                                     index={project.database.scenes.findIndex(s => s.id === activeDragScene.id)}
                                     locations={project.database.locations}
+                                    characters={project.database.characters}
                                     onUpdate={() => { }}
                                     onRemove={() => { }}
                                     isOverlay={true}
@@ -623,7 +698,7 @@ const Step2Analysis: React.FC<Props> = ({
                     </DndContext>
                 </section>
 
-            </div >
+            </div>
 
             <div className="pt-6 border-t border-slate-100 flex justify-between items-center">
                 <button onClick={onBack} className="px-6 py-3 rounded-xl text-slate-500 font-medium hover:bg-slate-100 transition-colors">
@@ -730,7 +805,7 @@ const Step2Analysis: React.FC<Props> = ({
             }
 
 
-        </div >
+        </div>
     );
 };
 

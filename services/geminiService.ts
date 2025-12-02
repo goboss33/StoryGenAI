@@ -408,10 +408,10 @@ export const generateScreenplay = async (
       Intent: ${meta_data.user_intent}
       
       CHARACTERS:
-      ${database.characters.map(c => `- ${c.name} (${c.role}): ${c.visual_seed.description}`).join('\n')}
+      ${database.characters.map(c => `- [ID: ${c.id}] ${c.name} (${c.role}): ${c.visual_seed.description}`).join('\n')}
       
       LOCATIONS:
-      ${database.locations.map(l => `- ${l.name}: ${l.environment_prompt}`).join('\n')}
+      ${database.locations.map(l => `- [ID: ${l.id}] ${l.name}: ${l.environment_prompt}`).join('\n')}
     `;
 
     // 2. Initialize Screenwriter Agent
@@ -433,7 +433,12 @@ export const generateScreenplay = async (
       INSTRUCTIONS:
       1. Create a sequence of scenes that tell the story.
       2. Use the Characters and Locations provided in the Context.
-      3. For each scene, provide the Slugline, Synopsis, and Script Content (Dialogue/Action).
+      3. For each scene, provide:
+         - Slugline
+         - Synopsis
+         - Script Content (Dialogue/Action)
+         - location_ref_id: The exact ID of the location from the context.
+         - characters_in_scene: An array of exact IDs of characters present in the scene.
       4. Ensure the total duration matches the target duration.
     `;
 
@@ -469,6 +474,7 @@ export const generateScreenplay = async (
     const generatedScenes = result.scenes.map((s: any) => ({
       ...s,
       id: crypto.randomUUID(),
+      characters_in_scene: s.characters_in_scene || [], // Ensure array exists
       shots: [], // Initialize empty shots
       script_content: {
         lines: s.script_content?.lines?.map((l: any) => ({ ...l, id: crypto.randomUUID() })) || []
