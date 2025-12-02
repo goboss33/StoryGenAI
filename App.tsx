@@ -582,6 +582,7 @@ const App: React.FC = () => {
         pendingRequest={pendingRequest}
         onResolveRequest={handleResolveRequest}
         onRejectRequest={handleRejectRequest}
+        projectState={state.project}
       />
     );
   }
