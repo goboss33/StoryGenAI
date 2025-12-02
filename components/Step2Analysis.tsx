@@ -1,6 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { StoryState, ProjectBackbone, CharacterTemplate, LocationTemplate, AssetChangeAnalysis, RefineQuestion } from '../types';
 import { generateAssetImage } from '../services/geminiService';
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragOverlay, DragStartEvent } from '@dnd-kit/core';
+import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 interface Props {
     project?: ProjectBackbone;
@@ -16,19 +19,213 @@ interface Props {
 
 type AssetType = 'character' | 'location' | 'item';
 
+// --- SORTABLE SCENE ITEM COMPONENT ---
+interface SortableSceneItemProps {
+    scene: import('../types').SceneTemplate;
+    index: number;
+    locations: import('../types').LocationTemplate[];
+    onUpdate: (id: string, updates: Partial<import('../types').SceneTemplate>) => void;
+    onRemove: (index: number) => void;
+    isOverlay?: boolean;
+}
+
+const SortableSceneItem: React.FC<SortableSceneItemProps> = ({ scene, index, locations, onUpdate, onRemove, isOverlay }) => {
+    const {
+        attributes,
+        listeners,
+        setNodeRef,
+        transform,
+        transition,
+        isDragging
+    } = useSortable({ id: scene.id });
+
+    const style = {
+        transform: CSS.Translate.toString(transform),
+        transition,
+        zIndex: isDragging ? 10 : 1,
+        opacity: isDragging ? 0.3 : 1,
+    };
+
+    // Find associated location image
+    const location = locations.find(l => l.id === scene.location_ref_id) ||
+        locations.find(l => scene.slugline.includes(l.name));
+
+    return (
+        <div
+            ref={setNodeRef}
+            style={style}
+            className={`p-4 border rounded-xl bg-white flex gap-4 items-start group relative transition-all ${isDragging ? 'ring-2 ring-indigo-500' : 'border-slate-200 shadow-sm hover:border-indigo-300'} ${isOverlay ? 'shadow-2xl rotate-2 scale-105 cursor-grabbing' : ''}`}
+        >
+            {/* Drag Handle */}
+            <div {...attributes} {...listeners} className="mt-2 cursor-grab active:cursor-grabbing text-slate-300 hover:text-indigo-500 p-1">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" /></svg>
+            </div>
+
+            {/* Scene Index */}
+            <div className="font-mono text-slate-400 font-bold text-sm pt-3 select-none">#{index + 1}</div>
+
+            {/* Content */}
+            <div className="flex-1 space-y-3">
+                {/* Header: Slugline & Time */}
+                <div className="flex gap-2 items-center">
+                    <select
+                        value={scene.slugline_elements?.int_ext || 'EXT.'}
+                        onChange={(e) => onUpdate(scene.id, {
+                            slugline_elements: { ...scene.slugline_elements!, int_ext: e.target.value as 'INT.' | 'EXT.' },
+                            slugline: `${e.target.value} ${scene.slugline_elements?.location} - ${scene.slugline_elements?.time}`
+                        })}
+                        className="text-xs font-bold bg-slate-100 text-slate-600 rounded px-2 py-1 border-none focus:ring-2 focus:ring-indigo-500 outline-none"
+                    >
+                        <option value="EXT.">EXT.</option>
+                        <option value="INT.">INT.</option>
+                    </select>
+
+                    <input
+                        type="text"
+                        value={scene.slugline_elements?.location || ''}
+                        onChange={(e) => onUpdate(scene.id, {
+                            slugline_elements: { ...scene.slugline_elements!, location: e.target.value },
+                            slugline: `${scene.slugline_elements?.int_ext} ${e.target.value} - ${scene.slugline_elements?.time}`
+                        })}
+                        className="flex-1 font-bold text-slate-800 text-sm uppercase tracking-wide border-b border-transparent focus:border-indigo-500 outline-none bg-transparent placeholder-slate-300"
+                        placeholder="LOCATION..."
+                    />
+
+                    <select
+                        value={scene.slugline_elements?.time || 'DAY'}
+                        onChange={(e) => onUpdate(scene.id, {
+                            slugline_elements: { ...scene.slugline_elements!, time: e.target.value },
+                            slugline: `${scene.slugline_elements?.int_ext} ${scene.slugline_elements?.location} - ${e.target.value}`
+                        })}
+                        className="text-xs font-bold bg-slate-100 text-slate-500 rounded px-2 py-1 border-none focus:ring-2 focus:ring-indigo-500 outline-none"
+                    >
+                        <option value="DAY">DAY</option>
+                        <option value="NIGHT">NIGHT</option>
+                        <option value="DAWN">DAWN</option>
+                        <option value="DUSK">DUSK</option>
+                    </select>
+                </div>
+
+                {/* Narrative Goal */}
+                <textarea
+                    value={scene.narrative_goal}
+                    onChange={(e) => onUpdate(scene.id, { narrative_goal: e.target.value })}
+                    className="w-full text-sm text-slate-600 border border-slate-100 rounded-lg p-2 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-200 outline-none resize-none bg-slate-50/50"
+                    rows={2}
+                    placeholder="Describe what happens in this scene..."
+                />
+
+                {/* Footer: Duration & Location Thumb */}
+                <div className="flex justify-between items-center pt-1">
+                    <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-1 bg-slate-100 px-2 py-1 rounded text-xs font-medium text-slate-600">
+                            <span>⏱️</span>
+                            <input
+                                type="number"
+                                value={scene.estimated_duration_sec}
+                                onChange={(e) => onUpdate(scene.id, { estimated_duration_sec: parseInt(e.target.value) || 0 })}
+                                className="w-8 bg-transparent text-center outline-none border-b border-transparent focus:border-indigo-500"
+                            />
+                            <span>s</span>
+                        </div>
+
+                        {location?.ref_image_url && (
+                            <div className="flex items-center gap-2 text-xs text-slate-400 bg-slate-50 px-2 py-1 rounded border border-slate-100">
+                                <img src={location.ref_image_url} alt="" className="w-4 h-4 rounded object-cover" />
+                                <span className="truncate max-w-[100px]">{location.name}</span>
+                            </div>
+                        )}
+                    </div>
+
+                    <button
+                        onClick={() => onRemove(index)}
+                        className="text-slate-300 hover:text-red-500 transition-colors p-1"
+                        title="Delete Scene"
+                    >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const Step2Analysis: React.FC<Props> = ({
     project, originalDatabase, onUpdate, onUpdateAssets, onRegenerationComplete, onNext, onBack, isAnalyzing, analysisStatus
 }) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [modalType, setModalType] = useState<AssetType>('character');
     const [newItemName, setNewItemName] = useState('');
-    const [newItemRole, setNewItemRole] = useState(''); // Role for char, Type (INT/EXT) for loc, Type for item
+    const [newItemRole, setNewItemRole] = useState('');
     const [newItemDesc, setNewItemDesc] = useState('');
 
-
     const [generatingAssetId, setGeneratingAssetId] = useState<string | null>(null);
+    const [activeDragScene, setActiveDragScene] = useState<import('../types').SceneTemplate | null>(null);
 
+    // DnD Sensors
+    const sensors = useSensors(
+        useSensor(PointerSensor, {
+            activationConstraint: {
+                distance: 8,
+            },
+        }),
+        useSensor(KeyboardSensor, {
+            coordinateGetter: sortableKeyboardCoordinates,
+        })
+    );
 
+    const handleDragStart = (event: DragStartEvent) => {
+        if (!project) return;
+        const { active } = event;
+        const scene = project.database.scenes.find(s => s.id === active.id);
+        if (scene) setActiveDragScene(scene);
+    };
+
+    const handleDragEnd = (event: DragEndEvent) => {
+        setActiveDragScene(null);
+        const { active, over } = event;
+        if (!project || !over || active.id === over.id) return;
+
+        const oldIndex = project.database.scenes.findIndex((s) => s.id === active.id);
+        const newIndex = project.database.scenes.findIndex((s) => s.id === over.id);
+
+        if (oldIndex !== -1 && newIndex !== -1) {
+            const newScenes = arrayMove(project.database.scenes, oldIndex, newIndex);
+            // Re-index scenes
+            const reindexedScenes = newScenes.map((scene, idx) => ({ ...scene, scene_index: idx + 1 }));
+            onUpdateAssets({ ...project.database, scenes: reindexedScenes });
+        }
+    };
+
+    const handleUpdateScene = (id: string, updates: Partial<import('../types').SceneTemplate>) => {
+        if (!project) return;
+        const newScenes = project.database.scenes.map(s => s.id === id ? { ...s, ...updates } : s);
+        onUpdateAssets({ ...project.database, scenes: newScenes });
+    };
+
+    const handleAddScene = () => {
+        if (!project) return;
+        const newScene: import('../types').SceneTemplate = {
+            id: `scene_new_${Date.now()}`,
+            scene_index: project.database.scenes.length + 1,
+            slugline: "EXT. LOCATION - DAY",
+            slugline_elements: { int_ext: "EXT.", location: "LOCATION", time: "DAY" },
+            narrative_goal: "",
+            estimated_duration_sec: 15,
+            location_ref_id: "",
+            shots: []
+        };
+        onUpdateAssets({ ...project.database, scenes: [...project.database.scenes, newScene] });
+    };
+
+    const handleRemoveScene = (index: number) => {
+        if (!project) return;
+        const newScenes = [...project.database.scenes];
+        newScenes.splice(index, 1);
+        // Re-index
+        const reindexedScenes = newScenes.map((scene, idx) => ({ ...scene, scene_index: idx + 1 }));
+        onUpdateAssets({ ...project.database, scenes: reindexedScenes });
+    };
 
     const handleRemoveCharacter = (index: number) => {
         if (!project) return;
@@ -99,8 +296,6 @@ const Step2Analysis: React.FC<Props> = ({
         }
         setIsModalOpen(false);
     };
-
-
 
     const handleGenerateImage = async (type: AssetType, index: number) => {
         if (!project) return;
@@ -374,34 +569,58 @@ const Step2Analysis: React.FC<Props> = ({
                     </div>
                 </section>
 
-                {/* SCENES */}
+                {/* SCENES (SEQUENCER) */}
                 <section className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm relative overflow-hidden">
-                    <div className="flex justify-between items-center mb-4">
+                    <div className="flex justify-between items-center mb-6">
                         <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                             <span className="bg-blue-100 text-blue-600 w-6 h-6 rounded flex items-center justify-center text-xs">5</span>
                             Séquencier ({project.database.scenes.length} scènes)
                         </h2>
-
+                        <button
+                            onClick={handleAddScene}
+                            className="text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1"
+                        >
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                            Ajouter Scène
+                        </button>
                     </div>
 
-                    <div className="space-y-3">
-                        {project.database.scenes.map((scene, idx) => (
-                            <div key={idx} className="p-4 border border-slate-100 rounded-xl bg-slate-50 flex gap-4 items-start">
-                                <div className="font-mono text-slate-400 font-bold text-sm pt-1">#{scene.scene_index}</div>
-                                <div>
-                                    <div className="font-bold text-slate-800 text-sm uppercase tracking-wide mb-1">{scene.slugline}</div>
-                                    <p className="text-sm text-slate-600">{scene.narrative_goal}</p>
-                                    <div className="mt-2 text-xs text-slate-500 flex gap-3">
-                                        <span className="bg-slate-100 px-2 py-1 rounded font-medium text-slate-600">
-                                            ⏱️ {scene.estimated_duration_sec}s
-                                        </span>
-                                    </div>
-                                </div>
+                    <DndContext
+                        sensors={sensors}
+                        collisionDetection={closestCenter}
+                        onDragStart={handleDragStart}
+                        onDragEnd={handleDragEnd}
+                    >
+                        <SortableContext
+                            items={project.database.scenes.map(s => s.id)}
+                            strategy={verticalListSortingStrategy}
+                        >
+                            <div className="space-y-3">
+                                {project.database.scenes.map((scene, idx) => (
+                                    <SortableSceneItem
+                                        key={scene.id}
+                                        scene={scene}
+                                        index={idx}
+                                        locations={project.database.locations}
+                                        onUpdate={handleUpdateScene}
+                                        onRemove={handleRemoveScene}
+                                    />
+                                ))}
                             </div>
-                        ))}
-                    </div>
-
-
+                        </SortableContext>
+                        <DragOverlay>
+                            {activeDragScene ? (
+                                <SortableSceneItem
+                                    scene={activeDragScene}
+                                    index={project.database.scenes.findIndex(s => s.id === activeDragScene.id)}
+                                    locations={project.database.locations}
+                                    onUpdate={() => { }}
+                                    onRemove={() => { }}
+                                    isOverlay={true}
+                                />
+                            ) : null}
+                        </DragOverlay>
+                    </DndContext>
                 </section>
 
             </div >
