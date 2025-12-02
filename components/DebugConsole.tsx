@@ -148,7 +148,9 @@ const LogItem: React.FC<{ log: LogEntry; isSummary?: boolean; onClick?: () => vo
 
     // Determine Icon
     const getIcon = () => {
-        if (log.agentRole === AgentRole.SHOWRUNNER || log.title.includes("Showrunner")) return "🧠";
+        if (log.title.includes("Orchestrator")) return null;
+        if (log.agentRole === AgentRole.CASTING_DIRECTOR || log.title.includes("Casting Director")) return "👤";
+        if (log.agentRole === AgentRole.LOCATION_SCOUT || log.title.includes("Location Scout")) return "🏞️";
         if (log.agentRole === AgentRole.SCREENWRITER || log.title.includes("Screenwriter")) return "✍️";
         if (log.agentRole === AgentRole.ART_DIRECTOR || log.title.includes("Art Director")) return "🎨";
         if (log.agentRole === AgentRole.DIRECTOR || log.title.includes("Director")) return "🎬";
@@ -409,13 +411,15 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
     const [editedPrompt, setEditedPrompt] = useState("");
     const [activeTab, setActiveTab] = useState<'SYSTEM' | AgentRole>('SYSTEM');
     const [agentMessages, setAgentMessages] = useState<Record<AgentRole, AgentMessage[]>>({
-        [AgentRole.SHOWRUNNER]: [],
+        [AgentRole.CASTING_DIRECTOR]: [],
+        [AgentRole.LOCATION_SCOUT]: [],
         [AgentRole.SCREENWRITER]: [],
         [AgentRole.ART_DIRECTOR]: [],
         [AgentRole.DIRECTOR]: [],
         [AgentRole.DIRECTOR_OF_PHOTOGRAPHY]: [],
         [AgentRole.SCRIPT_SUPERVISOR]: [],
-        [AgentRole.PROMPT_ENGINEER_VEO]: []
+        [AgentRole.PROMPT_ENGINEER_VEO]: [],
+        [AgentRole.SHOWRUNNER]: [] // Keep for legacy logs if any
     });
     const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
     const [chatInput, setChatInput] = useState("");
@@ -488,13 +492,15 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
     useEffect(() => {
         // Load initial history
         setAgentMessages({
-            [AgentRole.SHOWRUNNER]: getAgentHistory(AgentRole.SHOWRUNNER),
+            [AgentRole.CASTING_DIRECTOR]: getAgentHistory(AgentRole.CASTING_DIRECTOR),
+            [AgentRole.LOCATION_SCOUT]: getAgentHistory(AgentRole.LOCATION_SCOUT),
             [AgentRole.SCREENWRITER]: getAgentHistory(AgentRole.SCREENWRITER),
             [AgentRole.ART_DIRECTOR]: getAgentHistory(AgentRole.ART_DIRECTOR),
             [AgentRole.DIRECTOR]: getAgentHistory(AgentRole.DIRECTOR),
             [AgentRole.DIRECTOR_OF_PHOTOGRAPHY]: getAgentHistory(AgentRole.DIRECTOR_OF_PHOTOGRAPHY),
             [AgentRole.SCRIPT_SUPERVISOR]: getAgentHistory(AgentRole.SCRIPT_SUPERVISOR),
-            [AgentRole.PROMPT_ENGINEER_VEO]: getAgentHistory(AgentRole.PROMPT_ENGINEER_VEO)
+            [AgentRole.PROMPT_ENGINEER_VEO]: getAgentHistory(AgentRole.PROMPT_ENGINEER_VEO),
+            [AgentRole.SHOWRUNNER]: []
         });
 
         const unsubscribe = subscribeToAgentMessages((role, message) => {
@@ -620,10 +626,16 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
                     🖥️ System Logs
                 </button>
                 <button
-                    onClick={() => { setActiveTab(AgentRole.SHOWRUNNER); setHighlightedMessageId(null); }}
-                    className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors whitespace-nowrap ${activeTab === AgentRole.SHOWRUNNER ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
+                    onClick={() => { setActiveTab(AgentRole.CASTING_DIRECTOR); setHighlightedMessageId(null); }}
+                    className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors whitespace-nowrap ${activeTab === AgentRole.CASTING_DIRECTOR ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
                 >
-                    🧠 Showrunner
+                    👤 Casting
+                </button>
+                <button
+                    onClick={() => { setActiveTab(AgentRole.LOCATION_SCOUT); setHighlightedMessageId(null); }}
+                    className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors whitespace-nowrap ${activeTab === AgentRole.LOCATION_SCOUT ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
+                >
+                    🏞️ Locations
                 </button>
                 <button
                     onClick={() => { setActiveTab(AgentRole.SCREENWRITER); setHighlightedMessageId(null); }}
