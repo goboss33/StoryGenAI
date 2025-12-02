@@ -224,73 +224,117 @@ export const resetAgentMemory = (role: AgentRole) => {
 };
 
 // --- AGENTIC WORKFLOW: STEP 1 - PRODUCTION BIBLE (SHOWRUNNER AGENT) ---
-export const analyzeStoryConcept = async (
+// --- AGENTIC WORKFLOW: STEP 1 - CASTING DIRECTOR (CHARACTERS & ITEMS) ---
+export const generateCasting = async (
   idea: string,
-  settings: { tone: string; targetAudience: string; language: string; duration: number; videoType: string; visualStyle: string }
-): Promise<import("../types").ProjectBackbone> => {
+  settings: { tone: string; targetAudience: string; language: string }
+): Promise<{ characters: import("../types").CharacterTemplate[], items: import("../types").ItemTemplate[] }> => {
 
-  const systemInstruction = DEFAULT_SYSTEM_INSTRUCTIONS[AgentRole.SHOWRUNNER];
+  const systemInstruction = DEFAULT_SYSTEM_INSTRUCTIONS[AgentRole.CASTING_DIRECTOR];
   const modelName = "gemini-2.5-flash";
   const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "application/json" } });
 
-  // Get or Create SHOWRUNNER Agent
   const agentManager = AgentManager.getInstance();
-  const showrunnerSession = agentManager.getAgent(AgentRole.SHOWRUNNER, model, systemInstruction, {
+  const session = agentManager.getAgent(AgentRole.CASTING_DIRECTOR, model, systemInstruction, {
     model: modelName,
     dynamicPrompt: systemInstruction,
     finalPrompt: systemInstruction
   });
 
-  // 1. Define Prompt
   const prompt = `
-    PROJECT IDEA:
-    "${idea}"
-
-    SETTINGS:
-    - Language: ${settings.language}
-    - Tone: ${settings.tone}
-    - Target Audience: ${settings.targetAudience}
-    - Duration: ${settings.duration}s
-    - Video Type: ${settings.videoType}
-    - Visual Style: ${settings.visualStyle}
+    PROJECT IDEA: "${idea}"
+    TONE: ${settings.tone}
+    TARGET AUDIENCE: ${settings.targetAudience}
+    LANGUAGE: ${settings.language}
 
     INSTRUCTIONS:
-    1. Analyze the idea and settings.
-    2. Generate the full Production Bible.
-    3. **CRITICAL**: Output JSON strictly matching the structure defined in your SYSTEM INSTRUCTIONS.
-       - Ensure 'characters' and 'locations' are fully detailed.
-       - Leave 'scenes' empty [] for now.
+    Generate the Cast (Characters) and Props (Items) for this project.
   `;
 
   // INTERCEPT FOR REVIEW
-  const finalPrompt = await checkReviewMode(prompt, 'Showrunner: Generate Bible');
-
+  const finalPrompt = await checkReviewMode(prompt, 'Casting Director: Generate Cast');
   const messageId = crypto.randomUUID();
-  logDebug('req', 'Showrunner Agent: Generate Bible', { idea, settings }, { model: modelName, finalPrompt: finalPrompt, agentRole: AgentRole.SHOWRUNNER, linkedMessageId: messageId });
+  logDebug('req', 'Casting Director Agent: Generate Cast', { idea }, { model: modelName, finalPrompt: finalPrompt, agentRole: AgentRole.CASTING_DIRECTOR, linkedMessageId: messageId });
 
-  // Use AgentManager to send message
-  const text = await agentManager.sendMessage(AgentRole.SHOWRUNNER, showrunnerSession, finalPrompt, [], {
+  const text = await agentManager.sendMessage(AgentRole.CASTING_DIRECTOR, session, finalPrompt, [], {
     model: modelName,
     finalPrompt: finalPrompt,
     dynamicPrompt: prompt,
     messageId: messageId
   });
 
-  const bible: import("../types").ProductionBible = JSON.parse(text);
-  logDebug('res', 'Showrunner Agent: Bible Generated', { bible }, { agentRole: AgentRole.SHOWRUNNER, linkedMessageId: messageId });
-
+  const result = JSON.parse(text);
+  logDebug('res', 'Casting Director Agent: Cast Generated', { result }, { agentRole: AgentRole.CASTING_DIRECTOR, linkedMessageId: messageId });
   trackUsage(modelName, finalPrompt.length / 4, text.length / 4);
 
-  // Map ProductionBible to ProjectBackbone
-  const projectBackbone: import("../types").ProjectBackbone = {
+  return {
+    characters: result.characters.map((c: any) => ({ ...c, id: crypto.randomUUID() })),
+    items: result.items.map((i: any) => ({ ...i, id: crypto.randomUUID() }))
+  };
+};
+
+// --- AGENTIC WORKFLOW: STEP 2 - LOCATION SCOUT (LOCATIONS) ---
+export const generateLocations = async (
+  idea: string,
+  characters: import("../types").CharacterTemplate[]
+): Promise<import("../types").LocationTemplate[]> => {
+
+  const systemInstruction = DEFAULT_SYSTEM_INSTRUCTIONS[AgentRole.LOCATION_SCOUT];
+  const modelName = "gemini-2.5-flash";
+  const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "application/json" } });
+
+  const agentManager = AgentManager.getInstance();
+  const session = agentManager.getAgent(AgentRole.LOCATION_SCOUT, model, systemInstruction, {
+    model: modelName,
+    dynamicPrompt: systemInstruction,
+    finalPrompt: systemInstruction
+  });
+
+  const charContext = characters.map(c => `- ${c.name} (${c.role})`).join('\n');
+  const prompt = `
+    PROJECT IDEA: "${idea}"
+    CHARACTERS:
+    ${charContext}
+
+    INSTRUCTIONS:
+    Generate the Locations where this story takes place.
+  `;
+
+  // INTERCEPT FOR REVIEW
+  const finalPrompt = await checkReviewMode(prompt, 'Location Scout: Generate Locations');
+  const messageId = crypto.randomUUID();
+  logDebug('req', 'Location Scout Agent: Generate Locations', { idea }, { model: modelName, finalPrompt: finalPrompt, agentRole: AgentRole.LOCATION_SCOUT, linkedMessageId: messageId });
+
+  const text = await agentManager.sendMessage(AgentRole.LOCATION_SCOUT, session, finalPrompt, [], {
+    model: modelName,
+    finalPrompt: finalPrompt,
+    dynamicPrompt: prompt,
+    messageId: messageId
+  });
+
+  const result = JSON.parse(text);
+  logDebug('res', 'Location Scout Agent: Locations Generated', { result }, { agentRole: AgentRole.LOCATION_SCOUT, linkedMessageId: messageId });
+  trackUsage(modelName, finalPrompt.length / 4, text.length / 4);
+
+  return result.locations.map((l: any) => ({ ...l, id: crypto.randomUUID() }));
+};
+
+// --- MAIN ORCHESTRATOR ---
+export const analyzeStoryConcept = async (
+  idea: string,
+  settings: { tone: string; targetAudience: string; language: string; duration: number; videoType: string; visualStyle: string }
+): Promise<import("../types").ProjectBackbone> => {
+
+  // 1. Initialize Empty Backbone
+  let projectBackbone: import("../types").ProjectBackbone = {
     project_id: crypto.randomUUID(),
     meta_data: {
-      title: bible.meta.title,
+      title: "New Project", // Placeholder
       user_intent: idea,
       created_at: new Date().toISOString()
     },
     config: {
-      aspect_ratio: "16:9", // Default, can be changed later
+      aspect_ratio: "16:9",
       resolution: "1080p",
       target_fps: 24,
       primary_language: settings.language,
@@ -300,14 +344,14 @@ export const analyzeStoryConcept = async (
       has_voiceover: false
     },
     global_assets: {
-      art_style_prompt: `${bible.style_guide.visual_style}, ${bible.style_guide.lighting_mood}, ${bible.style_guide.color_palette}`,
+      art_style_prompt: settings.visualStyle,
       negative_prompt: "text, watermark, bad quality, blurry",
       music_theme_id: "default"
     },
     database: {
-      characters: bible.characters.map(c => ({ ...c, id: crypto.randomUUID() })),
-      locations: bible.locations.map(l => ({ ...l, id: crypto.randomUUID() })),
-      items: bible.items.map(i => ({ ...i, id: crypto.randomUUID() })),
+      characters: [],
+      locations: [],
+      items: [],
       scenes: []
     },
     final_render: {
@@ -315,17 +359,32 @@ export const analyzeStoryConcept = async (
     }
   };
 
+  // 2. CASTING DIRECTOR
+  logDebug('info', 'Orchestrator: Calling Casting Director...', {});
+  const castingResult = await generateCasting(idea, settings);
+  projectBackbone.database.characters = castingResult.characters;
+  projectBackbone.database.items = castingResult.items;
+
+  // 3. LOCATION SCOUT
+  logDebug('info', 'Orchestrator: Calling Location Scout...', {});
+  const locationResult = await generateLocations(idea, projectBackbone.database.characters);
+  projectBackbone.database.locations = locationResult;
+
+  // 4. SCREENWRITER
+  logDebug('info', 'Orchestrator: Calling Screenwriter...', {});
+  projectBackbone = await generateScreenplay(projectBackbone);
+
   return projectBackbone;
 };
+// --- AGENTIC WORKFLOW: STEP 2 - SCREENPLAY (SCREENWRITER AGENT) ---
 // --- AGENTIC WORKFLOW: STEP 2 - SCREENPLAY (SCREENWRITER AGENT) ---
 export const generateScreenplay = async (
   project: import("../types").ProjectBackbone
 ): Promise<import("../types").ProjectBackbone> => {
   try {
     const { database, meta_data, config } = project;
-    const scenes = database.scenes;
 
-    logDebug('info', 'Agentic Workflow', { step: '2. Generating Screenplay (Screenwriter Agent)', sceneCount: scenes.length });
+    logDebug('info', 'Agentic Workflow', { step: '2. Generating Screenplay (Screenwriter Agent)' });
 
     const modelName = "gemini-2.5-flash";
     const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "application/json" } });
@@ -345,8 +404,8 @@ export const generateScreenplay = async (
     `;
 
     // 2. Initialize Screenwriter Agent
-    const baseSystemInstruction = DEFAULT_SYSTEM_INSTRUCTIONS[AgentRole.SCREENWRITER];
-    const fullSystemInstruction = `${baseSystemInstruction}\n\n${bibleContext}`;
+    const systemInstruction = DEFAULT_SYSTEM_INSTRUCTIONS[AgentRole.SCREENWRITER];
+    const fullSystemInstruction = `${systemInstruction}\n\n${bibleContext}`;
 
     const agentManager = AgentManager.getInstance();
     const chatSession = agentManager.getAgent(AgentRole.SCREENWRITER, model, fullSystemInstruction, {
@@ -355,77 +414,58 @@ export const generateScreenplay = async (
       finalPrompt: fullSystemInstruction
     });
 
-    const updatedScenes: import("../types").SceneTemplate[] = [];
+    // 3. Generate Full Screenplay
+    const prompt = `
+      TASK: Write the complete screenplay for this project.
+      DURATION: ${project.final_render.total_duration_sec} seconds.
+      
+      INSTRUCTIONS:
+      1. Create a sequence of scenes that tell the story.
+      2. Use the Characters and Locations provided in the Context.
+      3. For each scene, provide the Slugline, Synopsis, and Script Content (Dialogue/Action).
+      4. Ensure the total duration matches the target duration.
+    `;
 
-    // 3. Generate Scenes Sequentially
-    for (let i = 0; i < scenes.length; i++) {
-      const scene = scenes[i];
+    // INTERCEPT FOR REVIEW
+    const finalPrompt = await checkReviewMode(prompt, 'Screenwriter: Generate Screenplay');
 
-      const sceneRequest = `
-        WRITE SCENE ${i + 1} of ${scenes.length}:
-        Slugline: ${scene.slugline}
-        Goal: ${scene.narrative_goal}
-        Synopsis: ${scene.synopsis || "No specific synopsis."}
-        Estimated Duration: ${scene.estimated_duration_sec} seconds
-        
-        OUTPUT JSON SCHEMA:
-        {
-          "lines": [
-            { 
-              "type": "slugline" | "action" | "dialogue" | "parenthetical" | "transition", 
-              "content": "Text content", 
-              "speaker": "CHARACTER NAME (only for dialogue)", 
-              "parenthetical": "(optional emotion)"
-            }
-          ]
-        }
-      `;
+    const messageId = crypto.randomUUID();
+    logDebug('req', 'Screenwriter Agent: Generate Screenplay', {}, {
+      model: modelName,
+      finalPrompt: finalPrompt,
+      agentRole: AgentRole.SCREENWRITER,
+      linkedMessageId: messageId
+    });
 
-      // INTERCEPT FOR REVIEW
-      const finalPrompt = await checkReviewMode(sceneRequest, `Screenwriter: Scene ${scene.slugline}`);
+    const text = await agentManager.sendMessage(AgentRole.SCREENWRITER, chatSession, finalPrompt, [], {
+      model: modelName,
+      finalPrompt: finalPrompt,
+      dynamicPrompt: prompt,
+      messageId: messageId
+    });
 
-      const messageId = crypto.randomUUID();
-      logDebug('req', `Screenwriter Agent: Scene ${scene.slugline}`, { sceneId: scene.id }, {
-        model: modelName,
-        finalPrompt: finalPrompt,
-        agentRole: AgentRole.SCREENWRITER,
-        linkedMessageId: messageId
-      });
+    const result = JSON.parse(text);
+    logDebug('res', 'Screenwriter Agent: Screenplay Generated', { result }, {
+      agentRole: AgentRole.SCREENWRITER,
+      linkedMessageId: messageId
+    });
 
-      try {
-        const text = await agentManager.sendMessage(AgentRole.SCREENWRITER, chatSession, finalPrompt, [], {
-          model: modelName,
-          finalPrompt: finalPrompt,
-          dynamicPrompt: sceneRequest,
-          messageId: messageId
-        });
+    trackUsage(modelName, finalPrompt.length / 4, text.length / 4);
 
-        const content = JSON.parse(text);
-
-        logDebug('res', `Screenwriter Agent: Scene ${scene.slugline}`, { content }, {
-          agentRole: AgentRole.SCREENWRITER,
-          linkedMessageId: messageId
-        });
-
-        const newScene = {
-          ...scene,
-          script_content: {
-            lines: Array.isArray(content.lines) ? content.lines.map((l: any) => ({ ...l, id: crypto.randomUUID() })) : []
-          }
-        };
-        updatedScenes.push(newScene);
-
-      } catch (error) {
-        console.error(`Failed to generate scene ${scene.slugline}`, error);
-        updatedScenes.push(scene); // Keep original if failed
+    const generatedScenes = result.scenes.map((s: any) => ({
+      ...s,
+      id: crypto.randomUUID(),
+      shots: [], // Initialize empty shots
+      script_content: {
+        lines: s.script_content?.lines?.map((l: any) => ({ ...l, id: crypto.randomUUID() })) || []
       }
-    }
+    }));
 
     return {
       ...project,
       database: {
         ...database,
-        scenes: updatedScenes
+        scenes: generatedScenes
       }
     };
 

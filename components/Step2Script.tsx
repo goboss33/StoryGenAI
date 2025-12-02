@@ -514,6 +514,39 @@ COMPOSITION RULES:
         }
     };
 
+    // --- Add Scene Logic ---
+    const handleAddScene = () => {
+        const newSceneId = crypto.randomUUID();
+        const newShot: Scene = {
+            id: crypto.randomUUID(),
+            sceneId: newSceneId,
+            number: 1,
+            duration: 5,
+            shotType: "Wide Shot",
+            cameraAngle: "Eye Level",
+            cameraMovement: "Static",
+            compositionTags: [],
+            sceneContext: "New Scene Context",
+            location: "Unknown Location",
+            time: "DAY",
+            weather: "CLEAR",
+            lighting: "Natural",
+            actionData: {
+                baseEnvironment: "A generic location",
+                characterActions: [],
+                itemStates: []
+            },
+            dialogue: "",
+            narration: "",
+            sfx: "",
+            music: "",
+            transition: "CUT TO",
+            veoMotionPrompt: "",
+            usedAssetIds: []
+        };
+        onUpdateScript([...script, newShot]);
+    };
+
     // --- Delete Logic ---
     const handleDeleteAsset = (assetId: string) => {
         if (window.confirm("Are you sure you want to delete this asset? It will be removed from all shots.")) {
@@ -950,149 +983,148 @@ COMPOSITION RULES:
                 {sceneGroups.map((group, idx) => (
                     <div key={group.sceneId} className="border border-slate-300 bg-slate-50 rounded-xl overflow-hidden shadow-sm">
 
-                        {/* SCENE HEADER (Dark) */}
-                        <div className="bg-slate-900 p-4 text-slate-200 flex flex-col gap-3">
+                        {/* --- NEW SCENE HEADER (Sequencer Style) --- */}
+                        <div className="bg-white border-b border-slate-200 p-4 flex items-start gap-4">
 
-                            <div className="flex items-start gap-4">
-                                <div className="flex flex-col gap-2 items-center">
-                                    <div className="flex-shrink-0 font-mono text-xl font-bold bg-slate-700 w-10 h-10 flex items-center justify-center rounded-lg text-emerald-400 border border-slate-600 mt-2">
-                                        {idx + 1}
-                                    </div>
-                                    {/* Scene Storyboard Button */}
-                                    {group.shots[0]?.sceneStoryboardUri ? (
-                                        <button
-                                            onClick={() => setPreviewStoryboardUri(group.shots[0].sceneStoryboardUri!)}
-                                            className="w-10 h-10 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg flex items-center justify-center transition-colors shadow-lg shadow-indigo-900/20 border border-indigo-400"
-                                            title="View Scene Storyboard"
-                                        >
-                                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                                        </button>
-                                    ) : (
-                                        <button
-                                            onClick={() => generateSceneStoryboard(group)}
-                                            disabled={generatingSceneIds.includes(group.sceneId)}
-                                            className="w-10 h-10 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-lg flex items-center justify-center transition-colors border border-slate-700"
-                                            title="Generate Scene Storyboard"
-                                        >
-                                            {generatingSceneIds.includes(group.sceneId) ? (
-                                                <span className="block w-5 h-5 animate-spin border-2 border-indigo-500 border-t-transparent rounded-full"></span>
-                                            ) : (
-                                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                                            )}
-                                        </button>
-                                    )}
-
-                                    {/* Generate Full Scene Video Button */}
-                                    <button
-                                        onClick={() => handleGenerateSceneVideo(group)}
-                                        disabled={generatingSceneIds.includes(group.sceneId)}
-                                        className="w-10 h-10 bg-gradient-to-br from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-lg flex items-center justify-center transition-all shadow-lg shadow-purple-900/20 border border-purple-400 mt-2"
-                                        title="Generate Full Scene Video (Veo Extension)"
-                                    >
-                                        {generatingSceneIds.includes(group.sceneId) ? (
-                                            <span className="block w-5 h-5 animate-spin border-2 border-white border-t-transparent rounded-full"></span>
-                                        ) : (
-                                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-                                        )}
-                                    </button>
-                                </div>
-
-                                <div
-                                    className="flex-1 flex gap-4 overflow-x-auto pt-2 pb-2 px-2 items-start custom-scrollbar"
-                                    onWheel={(e) => {
-                                        if (e.deltaY !== 0) {
-                                            e.currentTarget.scrollLeft += e.deltaY;
+                            {/* 1. Location Icon (Square) */}
+                            <div className="flex-shrink-0 group relative">
+                                <div className="w-16 h-16 rounded-lg overflow-hidden border border-slate-200 shadow-sm bg-slate-100 flex items-center justify-center relative">
+                                    {(() => {
+                                        const loc = locationAssets.find(l => l.id === group.locationAssetId);
+                                        if (loc && loc.imageUri) {
+                                            return <img src={loc.imageUri} alt={loc.name} className="w-full h-full object-cover" />;
+                                        } else if (loc) {
+                                            return (
+                                                <div className="w-full h-full bg-emerald-50 flex flex-col items-center justify-center p-1 text-center">
+                                                    <svg className="w-6 h-6 text-emerald-300 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                                                    <span className="text-[8px] font-bold text-emerald-700 leading-tight line-clamp-2">{loc.name}</span>
+                                                </div>
+                                            );
+                                        } else {
+                                            return (
+                                                <div className="w-full h-full bg-slate-50 flex flex-col items-center justify-center p-1 text-center">
+                                                    <span className="text-[8px] font-bold text-slate-400 leading-tight">{group.locationName}</span>
+                                                </div>
+                                            );
                                         }
-                                    }}
-                                >
-                                    {locationAssets.map(loc => {
-                                        const isSelected = group.locationAssetId === loc.id;
-                                        const isGenerating = loc.status === 'generating';
-                                        const hasImage = !!loc.imageUri;
+                                    })()}
 
-                                        return (
-                                            <div key={loc.id} className="relative group/loc flex flex-col justify-start items-center gap-2 w-24 flex-shrink-0">
-
-                                                {/* Thumbnail (Middle) */}
-                                                <button
-                                                    onClick={() => {
-                                                        updateSceneHeader(group.sceneId, { locationAssetId: loc.id, location: `${loc.name} - ${group.time}` });
-                                                    }}
-                                                    className="flex flex-col items-center w-full relative"
-                                                >
-                                                    <div className={`
-                                                    relative w-24 h-24 rounded-xl overflow-hidden shadow-sm transition-all duration-200 flex-shrink-0
-                                                    ${isSelected ? 'ring-2 ring-emerald-500 scale-105 opacity-100 z-10' : 'opacity-50 grayscale-[0.5] hover:opacity-100 hover:grayscale-0'}
-                                            `}>
-                                                        {hasImage ? (
-                                                            <img src={loc.imageUri} alt={loc.name} className="w-full h-full object-cover" />
-                                                        ) : (
-                                                            <div className="w-full h-full bg-slate-800 flex items-center justify-center text-slate-600">
-                                                                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                                                            </div>
-                                                        )}
-                                                        {isGenerating && (
-                                                            <div className="absolute inset-0 bg-slate-900/80 flex items-center justify-center z-20">
-                                                                <div className="animate-spin w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full"></div>
-                                                            </div>
-                                                        )}
-
-                                                        {/* Toolbar Overlay (Centered) */}
-                                                        <div className="absolute inset-0 z-30 flex items-center justify-center opacity-0 group-hover/loc:opacity-100 transition-opacity duration-200">
-                                                            {!hasImage ? (
-                                                                <button
-                                                                    onClick={(e) => { e.stopPropagation(); handleQuickGenerate(loc.id); }}
-                                                                    disabled={isGenerating}
-                                                                    className="w-10 h-10 bg-white text-indigo-600 rounded-full hover:scale-110 transition-transform shadow-lg shadow-black/20 border border-indigo-100 flex items-center justify-center"
-                                                                    title="Generate Location"
-                                                                >
-                                                                    {isGenerating ? (
-                                                                        <span className="block w-4 h-4 animate-spin border-2 border-emerald-400 border-t-transparent rounded-full"></span>
-                                                                    ) : (
-                                                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                                                                    )}
-                                                                </button>
-                                                            ) : (
-                                                                <button
-                                                                    onClick={(e) => { e.stopPropagation(); setPreviewAssetId(loc.id); }}
-                                                                    className="w-10 h-10 bg-white text-slate-800 rounded-full hover:scale-110 transition-transform shadow-lg shadow-black/20 border border-slate-100 flex items-center justify-center"
-                                                                    title="Inspect Location"
-                                                                >
-                                                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                                                                </button>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                </button>
-
-                                                {/* Name (Bottom) */}
-                                                <span className={`text-[11px] font-bold text-center leading-tight w-full break-words px-1 ${isSelected ? 'text-emerald-400' : 'text-slate-400 group-hover/loc:text-slate-200'}`}>
-                                                    {loc.name}
-                                                </span>
-                                            </div>
-                                        );
-                                    })}
-                                    {locationAssets.length === 0 && <div className="text-xs text-slate-500 italic px-2 pt-8">No locations defined</div>}
+                                    {/* Edit Location Overlay */}
+                                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity cursor-pointer">
+                                        <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                                    </div>
                                 </div>
                             </div>
 
-                            <div className="flex gap-2 mt-1">
-                                <div className="w-10 flex-shrink-0"></div>
-                                <div className="flex-1 flex gap-2">
-                                    <textarea
-                                        className="flex-1 bg-slate-800/50 text-slate-300 text-sm p-2 rounded border border-slate-700 outline-none focus:border-slate-500 h-10 resize-none italic min-h-[40px]"
-                                        value={group.context}
-                                        onChange={(e) => updateSceneHeader(group.sceneId, { sceneContext: e.target.value })}
-                                        placeholder="Scene context / blocking..."
-                                    />
+                            {/* 2. Scene Info & Context */}
+                            <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-3 mb-2">
+                                    <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+                                        <span className="text-slate-400">SCENE {idx + 1}</span>
+                                        <span className="w-1 h-4 bg-slate-300 rounded-full"></span>
+                                        <span className="text-indigo-600 truncate">{group.locationName}</span>
+                                    </h3>
+
+                                    {/* Time Selector */}
                                     <select
-                                        className="bg-slate-800 text-slate-300 font-bold uppercase outline-none px-3 rounded border border-slate-700 text-xs h-10"
+                                        className="bg-slate-100 text-slate-600 font-bold uppercase outline-none px-2 py-0.5 rounded text-[10px] border border-slate-200 hover:border-indigo-300 transition-colors"
                                         value={group.time}
                                         onChange={(e) => updateSceneHeader(group.sceneId, { location: `${group.locationName} - ${e.target.value}`, weather: group.weather })}
                                     >
                                         {['DAY', 'NIGHT', 'DAWN', 'DUSK'].map(t => <option key={t} value={t}>{t}</option>)}
                                     </select>
+
+                                    {/* Duration Input */}
+                                    <div className="flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 ml-auto">
+                                        <svg className="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                        <input
+                                            type="number"
+                                            className="w-8 text-center text-xs font-bold text-slate-700 bg-transparent outline-none"
+                                            value={group.shots.reduce((acc, s) => acc + s.duration, 0)}
+                                            onChange={(e) => {
+                                                const newTotal = parseInt(e.target.value) || 1;
+                                                const currentTotal = group.shots.reduce((acc, s) => acc + s.duration, 0);
+                                                const delta = newTotal - currentTotal;
+                                                if (group.shots.length > 0) {
+                                                    updateShot(group.shots[0].id, { duration: Math.max(1, group.shots[0].duration + delta) });
+                                                }
+                                            }}
+                                        />
+                                        <span className="text-[10px] font-bold text-slate-400">s</span>
+                                    </div>
                                 </div>
+
+                                {/* Context / Synopsis */}
+                                <textarea
+                                    className="w-full bg-slate-50 text-slate-600 text-sm p-2 rounded border border-slate-200 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-200 resize-none min-h-[60px]"
+                                    value={group.context}
+                                    onChange={(e) => updateSceneHeader(group.sceneId, { sceneContext: e.target.value })}
+                                    placeholder="Synopsis de la scène..."
+                                />
+                            </div>
+
+                            {/* 3. Character Bubbles */}
+                            <div className="flex flex-col gap-2 items-end">
+                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">CAST</span>
+                                <div className="flex -space-x-2 overflow-hidden p-1">
+                                    {(() => {
+                                        const sceneCharIds = Array.from(new Set(group.shots.flatMap(s => s.usedAssetIds || [])));
+                                        const sceneChars = castAssets.filter(a => sceneCharIds.includes(a.id));
+
+                                        if (sceneChars.length === 0) return <span className="text-xs text-slate-300 italic">None</span>;
+
+                                        return sceneChars.map(char => (
+                                            <div key={char.id} className="w-8 h-8 rounded-full ring-2 ring-white overflow-hidden bg-indigo-50 relative group/char" title={char.name}>
+                                                {char.imageUri ? (
+                                                    <img src={char.imageUri} alt={char.name} className="w-full h-full object-cover" />
+                                                ) : (
+                                                    <div className="w-full h-full flex items-center justify-center text-indigo-300 font-bold text-[10px]">
+                                                        {char.name.charAt(0)}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ));
+                                    })()}
+
+                                    {/* Add Character Button */}
+                                    <button className="w-8 h-8 rounded-full ring-2 ring-white bg-slate-100 flex items-center justify-center text-slate-400 hover:bg-slate-200 hover:text-indigo-500 transition-colors" title="Add Character">
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* 4. Scene Actions (Move/Delete) */}
+                            <div className="flex flex-col gap-1 ml-2 border-l border-slate-100 pl-3">
+                                <button
+                                    className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                                    title="Move Up"
+                                    onClick={() => {
+                                        alert("Move Up (Coming Soon)");
+                                    }}
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" /></svg>
+                                </button>
+                                <button
+                                    className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                                    title="Move Down"
+                                    onClick={() => {
+                                        alert("Move Down (Coming Soon)");
+                                    }}
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                                </button>
+                                <button
+                                    className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors mt-2"
+                                    title="Delete Scene"
+                                    onClick={() => {
+                                        if (confirm("Delete this scene?")) {
+                                            const updatedScript = script.filter(s => s.sceneId !== group.sceneId);
+                                            onUpdateScript(updatedScript);
+                                        }
+                                    }}
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                </button>
                             </div>
                         </div>
 
@@ -1432,6 +1464,19 @@ COMPOSITION RULES:
                         </div>
                     </div>
                 ))}
+
+                {/* ADD SCENE BUTTON */}
+                <div className="flex justify-center py-8 border-t border-slate-200 border-dashed">
+                    <button
+                        onClick={handleAddScene}
+                        className="group flex flex-col items-center gap-3 px-8 py-6 rounded-2xl border-2 border-dashed border-slate-300 hover:border-indigo-400 hover:bg-indigo-50/50 transition-all"
+                    >
+                        <div className="w-12 h-12 rounded-full bg-slate-100 group-hover:bg-indigo-100 flex items-center justify-center text-slate-400 group-hover:text-indigo-600 transition-colors">
+                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                        </div>
+                        <span className="font-bold text-slate-500 group-hover:text-indigo-600">Add New Scene</span>
+                    </button>
+                </div>
             </div>
 
             <div className="pt-4 border-t border-slate-200 flex justify-between">

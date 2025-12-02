@@ -180,6 +180,8 @@ export const TARGET_AUDIENCES = [
 // --- AGENT SYSTEM TYPES ---
 export enum AgentRole {
   SHOWRUNNER = 'Showrunner',
+  CASTING_DIRECTOR = 'Casting Director',
+  LOCATION_SCOUT = 'Location Scout',
   SCREENWRITER = 'Screenwriter',
   ART_DIRECTOR = 'Art Director',
   DIRECTOR_OF_PHOTOGRAPHY = 'Director of Photography',
