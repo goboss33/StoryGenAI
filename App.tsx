@@ -178,20 +178,26 @@ const App: React.FC = () => {
 
   const updateState = (updates: Partial<StoryState>) => {
     setState(prev => ({ ...prev, ...updates }));
+    if (updates.project) {
+      broadcastChannelRef.current?.postMessage({ type: 'PROJECT_STATE_UPDATE', payload: updates.project });
+    }
   };
 
   const handleRegenerationComplete = (updatedDatabase: ProjectBackbone['database']) => {
+    const updatedProject = state.project ? { ...state.project, database: updatedDatabase } : undefined;
+
     setState(prev => {
       if (!prev.project) return prev;
       return {
         ...prev,
-        project: {
-          ...prev.project,
-          database: updatedDatabase
-        },
+        project: updatedProject,
         originalDatabase: JSON.parse(JSON.stringify(updatedDatabase)), // Reset change detection
       };
     });
+
+    if (updatedProject) {
+      broadcastChannelRef.current?.postMessage({ type: 'PROJECT_STATE_UPDATE', payload: updatedProject });
+    }
   };
 
   // --- DEBUG & LOGGING ---
@@ -233,6 +239,9 @@ const App: React.FC = () => {
         if (pendingRequest) {
           channel.postMessage({ type: 'PENDING_REQUEST_UPDATE', payload: pendingRequest });
         }
+        if (state.project) {
+          channel.postMessage({ type: 'PROJECT_STATE_UPDATE', payload: state.project });
+        }
       } else if (type === 'SYNC_RESPONSE') {
         // Received full history (Debug Window)
         setLogs(payload);
@@ -257,6 +266,9 @@ const App: React.FC = () => {
         // Received agent message (Debug Window)
         const { role, message } = payload;
         injectAgentMessage(role, message);
+      } else if (type === 'PROJECT_STATE_UPDATE') {
+        // Received project state update (Debug Window)
+        setState(prev => ({ ...prev, project: payload }));
       }
     };
 
@@ -443,6 +455,8 @@ const App: React.FC = () => {
           originalDatabase: JSON.parse(JSON.stringify(projectBackbone.database)), // Deep copy
           // We are already on step 1, so we just update the data
         }));
+
+        broadcastChannelRef.current?.postMessage({ type: 'PROJECT_STATE_UPDATE', payload: projectBackbone });
 
       } catch (error: any) {
         console.error("Analysis failed", error);
@@ -764,6 +778,7 @@ const App: React.FC = () => {
             pendingRequest={pendingRequest}
             onResolveRequest={handleResolveRequest}
             onRejectRequest={handleRejectRequest}
+            projectState={state.project}
           />
         )}
       </div>

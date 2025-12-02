@@ -34,6 +34,7 @@ interface DebugConsoleProps {
     pendingRequest: PendingRequestData | null;
     onResolveRequest: (id: string, prompt: string) => void;
     onRejectRequest: (id: string) => void;
+    projectState?: any;
 }
 
 const JsonViewer: React.FC<{ data: any; level?: number; initialExpandedDepth?: number }> = ({
@@ -421,11 +422,12 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
     onToggleReviewMode,
     pendingRequest,
     onResolveRequest,
-    onRejectRequest
+    onRejectRequest,
+    projectState
 }) => {
     const logEndRef = useRef<HTMLDivElement>(null);
     const [editedPrompt, setEditedPrompt] = useState("");
-    const [activeTab, setActiveTab] = useState<'SYSTEM' | AgentRole>('SYSTEM');
+    const [activeTab, setActiveTab] = useState<'SYSTEM' | 'STATE' | AgentRole>('SYSTEM');
     const [agentMessages, setAgentMessages] = useState<Record<AgentRole, AgentMessage[]>>({
         [AgentRole.CASTING_DIRECTOR]: [],
         [AgentRole.LOCATION_SCOUT]: [],
@@ -642,6 +644,12 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
                     🖥️ System Logs
                 </button>
                 <button
+                    onClick={() => { setActiveTab('STATE'); setHighlightedMessageId(null); }}
+                    className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors whitespace-nowrap ${activeTab === 'STATE' ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
+                >
+                    📦 State
+                </button>
+                <button
                     onClick={() => { setActiveTab(AgentRole.CASTING_DIRECTOR); setHighlightedMessageId(null); }}
                     className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors whitespace-nowrap ${activeTab === AgentRole.CASTING_DIRECTOR ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
                 >
@@ -693,7 +701,7 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
 
             {/* AGENT SETTINGS BAR (System Prompt & Reset) */}
             {
-                activeTab !== 'SYSTEM' && (
+                activeTab !== 'SYSTEM' && activeTab !== 'STATE' && (
                     <div className="bg-slate-900 border-b border-slate-800 px-4 py-2 flex items-center justify-between">
                         <div className="flex items-center gap-2">
                             <button
@@ -718,7 +726,7 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
 
             {/* SYSTEM PROMPT EDITOR */}
             {
-                activeTab !== 'SYSTEM' && isSystemPromptOpen && (
+                activeTab !== 'SYSTEM' && activeTab !== 'STATE' && isSystemPromptOpen && (
                     <div className="p-4 bg-slate-950 border-b border-slate-800 animate-in slide-in-from-top-2 duration-200">
                         <label className="block text-[10px] font-bold uppercase text-slate-500 mb-2">System Instructions (Persona & Rules)</label>
                         <textarea
@@ -755,6 +763,22 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
                             />
                         ))}
                     </>
+
+                ) : activeTab === 'STATE' ? (
+                    <div className="p-4">
+                        <div className="flex justify-between items-center mb-4 border-b border-slate-800 pb-2">
+                            <h3 className="text-sm font-bold text-slate-300 uppercase">Project Backbone State</h3>
+                            <button
+                                onClick={() => navigator.clipboard.writeText(JSON.stringify(projectState, null, 2))}
+                                className="text-xs text-indigo-400 hover:text-white uppercase font-bold hover:bg-slate-800 px-2 py-1 rounded transition-colors"
+                            >
+                                Copy State
+                            </button>
+                        </div>
+                        <div className="bg-slate-950/50 p-4 rounded border border-slate-800 overflow-x-auto custom-scrollbar">
+                            <JsonViewer data={projectState || { status: "No project state available" }} initialExpandedDepth={2} />
+                        </div>
+                    </div>
                 ) : (
                     <>
                         {(() => {
@@ -811,7 +835,7 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
 
             {/* CHAT INPUT AREA (Only for Agents) */}
             {
-                activeTab !== 'SYSTEM' && (
+                activeTab !== 'SYSTEM' && activeTab !== 'STATE' && (
                     <div className="p-3 bg-slate-950 border-t border-slate-800 flex flex-col gap-2 flex-shrink-0">
                         {/* Attached Images Preview */}
                         {attachedImages.length > 0 && (
