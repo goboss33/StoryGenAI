@@ -214,16 +214,16 @@ const LogItem: React.FC<{ log: LogEntry; isSummary?: boolean; onClick?: () => vo
                             <button
                                 onClick={(e) => { e.stopPropagation(); setShowDynamic(true); }}
                                 className={`px-2 py-0.5 text-[9px] font-bold uppercase transition-colors ${showDynamic ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
-                                title="Show Dynamic Prompt (Template)"
+                                title="Show Raw Prompt (Template)"
                             >
-                                Dynamic
+                                RAW
                             </button>
                             <button
                                 onClick={(e) => { e.stopPropagation(); setShowDynamic(false); }}
                                 className={`px-2 py-0.5 text-[9px] font-bold uppercase transition-colors ${!showDynamic ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
-                                title="Show Final Prompt (Sent to AI)"
+                                title="Show Payload (Sent to AI)"
                             >
-                                Final
+                                PAYLOAD
                             </button>
                         </div>
                     )}
@@ -239,47 +239,18 @@ const LogItem: React.FC<{ log: LogEntry; isSummary?: boolean; onClick?: () => vo
             </div>
 
             {/* Prompt Display (if available) */}
-            {showDetails && hasPrompts && displayContent && (
-                <div className="bg-slate-950 p-2 rounded border border-slate-800 text-slate-300 whitespace-pre-wrap break-words overflow-hidden select-text text-[10px] font-mono relative">
-                    <div className="absolute top-1 right-1 text-[9px] text-slate-600 font-bold uppercase pointer-events-none">
-                        {showDynamic ? 'TEMPLATE' : 'PAYLOAD'}
-                    </div>
-                    {showDynamic ? <HighlightVariables text={displayContent} /> : displayContent}
-                </div>
-            )}
-
-            {/* Raw Data (JSON) */}
-            {showDetails && (
-                <div className={`bg-slate-950/50 p-2 rounded border border-slate-800 overflow-x-auto custom-scrollbar transition-all ${hasPrompts && !isExpanded ? 'max-h-20 opacity-70 hover:opacity-100 cursor-pointer' : ''}`}
-                    onClick={(e) => { e.stopPropagation(); hasPrompts && !isExpanded && setIsExpanded(true); }}
-                >
-                    {/* Header with Actions when Expanded */}
-                    {isExpanded && (
-                        <div className="flex justify-between items-center mb-2 border-b border-slate-800/50 pb-1">
-                            <span className="text-[9px] text-slate-500 font-bold uppercase">JSON Data</span>
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); handleExpandAll(); }}
-                                    className="text-[9px] text-indigo-400 hover:text-indigo-300 uppercase font-bold hover:bg-slate-800 px-1 rounded transition-colors"
-                                >
-                                    Expand All
-                                </button>
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); handleCollapseAll(); }}
-                                    className="text-[9px] text-slate-500 hover:text-slate-300 uppercase font-bold hover:bg-slate-800 px-1 rounded transition-colors"
-                                >
-                                    Collapse All
-                                </button>
-                            </div>
+            {
+                showDetails && hasPrompts && displayContent && (
+                    <div className="bg-slate-950 p-2 rounded border border-slate-800 text-slate-300 whitespace-pre-wrap break-words overflow-hidden select-text text-[10px] font-mono relative">
+                        <div className="absolute top-1 right-1 text-[9px] text-slate-600 font-bold uppercase pointer-events-none">
+                            {showDynamic ? 'TEMPLATE' : 'PAYLOAD'}
                         </div>
-                    )}
+                        {showDynamic ? <HighlightVariables text={displayContent} /> : displayContent}
+                    </div>
+                )
+            }
 
-                    {hasPrompts && !isExpanded && <div className="text-[9px] text-slate-500 mb-1 uppercase font-bold">Raw Data (Click to expand)</div>}
-
-                    <JsonViewer data={log.data} initialExpandedDepth={jsonDepth} key={jsonKey} />
-                </div>
-            )}
-        </div>
+        </div >
     );
 };
 
@@ -288,6 +259,8 @@ const AgentMessageItem: React.FC<{ message: AgentMessage; isHighlighted?: boolea
     const isSystem = message.role === 'system';
     const [showDynamic, setShowDynamic] = useState(false);
     const [isExpanded, setIsExpanded] = useState(true);
+    const [jsonDepth, setJsonDepth] = useState(1);
+    const [jsonKey, setJsonKey] = useState(0);
     const itemRef = useRef<HTMLDivElement>(null);
 
     const hasPrompts = !!message.dynamicPrompt || !!message.finalPrompt;
@@ -340,16 +313,16 @@ const AgentMessageItem: React.FC<{ message: AgentMessage; isHighlighted?: boolea
                             <button
                                 onClick={() => setShowDynamic(true)}
                                 className={`px-2 py-0.5 text-[9px] font-bold uppercase transition-colors ${showDynamic ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
-                                title="Show Dynamic Prompt (Template)"
+                                title="Show Raw Prompt (Template)"
                             >
-                                Dynamic
+                                RAW
                             </button>
                             <button
                                 onClick={() => setShowDynamic(false)}
                                 className={`px-2 py-0.5 text-[9px] font-bold uppercase transition-colors ${!showDynamic ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
-                                title="Show Final Prompt (Sent to AI)"
+                                title="Show Payload (Sent to AI)"
                             >
-                                Final
+                                PAYLOAD
                             </button>
                         </div>
                     )}
@@ -369,7 +342,7 @@ const AgentMessageItem: React.FC<{ message: AgentMessage; isHighlighted?: boolea
             {hasPrompts && displayContent && (
                 <div className="bg-slate-950 p-2 rounded border border-slate-800 text-slate-300 whitespace-pre-wrap break-words overflow-hidden select-text text-[10px] font-mono relative mb-2">
                     <div className="absolute top-1 right-1 text-[9px] text-slate-600 font-bold uppercase pointer-events-none">
-                        {showDynamic ? 'TEMPLATE' : 'PAYLOAD'}
+                        {showDynamic ? 'RAW' : 'PAYLOAD'}
                     </div>
                     {showDynamic ? <HighlightVariables text={displayContent} /> : displayContent}
                 </div>
@@ -377,15 +350,58 @@ const AgentMessageItem: React.FC<{ message: AgentMessage; isHighlighted?: boolea
 
             {/* Content / Data Display */}
             {!shouldHideContent && (
-                hasData ? (
-                    <div className="bg-slate-950/50 p-2 rounded border border-slate-800 overflow-x-auto custom-scrollbar">
-                        <JsonViewer data={message.data} initialExpandedDepth={1} />
-                    </div>
-                ) : (
-                    <div className="text-xs font-mono whitespace-pre-wrap text-slate-300">
-                        {message.content}
-                    </div>
-                )
+                (() => {
+                    let jsonData = null;
+                    if (!isUser && !isSystem) {
+                        try {
+                            // Try to parse content as JSON if it looks like JSON
+                            const trimmed = message.content.trim();
+                            if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+                                jsonData = JSON.parse(message.content);
+                            }
+                        } catch (e) {
+                            // Not JSON, ignore
+                        }
+                    }
+
+                    if (jsonData) {
+                        return (
+                            <div className="bg-slate-950/50 p-2 rounded border border-slate-800 overflow-x-auto custom-scrollbar">
+                                <div className="flex justify-between items-center mb-2 border-b border-slate-800/50 pb-1">
+                                    <span className="text-[9px] text-slate-500 font-bold uppercase">JSON Response</span>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); copyToClipboard(JSON.stringify(jsonData, null, 2)); }}
+                                            className="text-[9px] text-slate-500 hover:text-white uppercase font-bold hover:bg-slate-800 px-1 rounded transition-colors"
+                                            title="Copy JSON"
+                                        >
+                                            Copy JSON
+                                        </button>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); setJsonDepth(100); setJsonKey(prev => prev + 1); }}
+                                            className="text-[9px] text-indigo-400 hover:text-indigo-300 uppercase font-bold hover:bg-slate-800 px-1 rounded transition-colors"
+                                        >
+                                            Expand All
+                                        </button>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); setJsonDepth(0); setJsonKey(prev => prev + 1); }}
+                                            className="text-[9px] text-slate-500 hover:text-slate-300 uppercase font-bold hover:bg-slate-800 px-1 rounded transition-colors"
+                                        >
+                                            Collapse All
+                                        </button>
+                                    </div>
+                                </div>
+                                <JsonViewer data={jsonData} initialExpandedDepth={jsonDepth} key={jsonKey} />
+                            </div>
+                        );
+                    } else {
+                        return (
+                            <div className="text-xs font-mono whitespace-pre-wrap text-slate-300">
+                                {message.content}
+                            </div>
+                        );
+                    }
+                })()
             )}
         </div>
     );
@@ -748,8 +764,8 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
 
                             // Combine and Sort by Timestamp
                             const combinedHistory = [
-                                ...messages.map(m => ({ type: 'message' as const, data: m, timestamp: m.timestamp })),
-                                ...agentLogs.map(l => ({ type: 'log' as const, data: l, timestamp: l.timestamp }))
+                                ...messages.filter(m => m.role !== 'user').map(m => ({ type: 'message' as const, data: m, timestamp: m.timestamp })),
+                                ...agentLogs.filter(l => l.type !== 'res').map(l => ({ type: 'log' as const, data: l, timestamp: l.timestamp }))
                             ].sort((a, b) => a.timestamp - b.timestamp);
 
                             if (combinedHistory.length === 0) {
@@ -760,11 +776,14 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
                                 if (item.type === 'message') {
                                     const msg = item.data as AgentMessage;
                                     return (
-                                        <AgentMessageItem
-                                            key={`msg-${msg.id}`}
-                                            message={msg}
-                                            isHighlighted={msg.id === highlightedMessageId}
-                                        />
+                                        <div key={`msg-${msg.id}`} className="pl-8 pr-2">
+                                            <div className="border-l-2 border-slate-800 pl-4 py-2 relative">
+                                                <AgentMessageItem
+                                                    message={msg}
+                                                    isHighlighted={msg.id === highlightedMessageId}
+                                                />
+                                            </div>
+                                        </div>
                                     );
                                 } else {
                                     const log = item.data as LogEntry;

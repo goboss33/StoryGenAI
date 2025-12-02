@@ -241,25 +241,31 @@ export const generateCasting = async (
     finalPrompt: systemInstruction
   });
 
-  const prompt = `
-    PROJECT IDEA: "${idea}"
-    TONE: ${settings.tone}
-    TARGET AUDIENCE: ${settings.targetAudience}
-    LANGUAGE: ${settings.language}
+  const promptTemplate = `
+    PROJECT IDEA: "{{idea}}"
+    TONE: {{tone}}
+    TARGET AUDIENCE: {{targetAudience}}
+    LANGUAGE: {{language}}
 
     INSTRUCTIONS:
     Generate the Cast (Characters) and Props (Items) for this project.
   `;
 
+  const prompt = promptTemplate
+    .replace('{{idea}}', idea)
+    .replace('{{tone}}', settings.tone)
+    .replace('{{targetAudience}}', settings.targetAudience)
+    .replace('{{language}}', settings.language);
+
   // INTERCEPT FOR REVIEW
   const finalPrompt = await checkReviewMode(prompt, 'Casting Director: Generate Cast');
   const messageId = crypto.randomUUID();
-  logDebug('req', 'Casting Director Agent: Generate Cast', { idea }, { model: modelName, finalPrompt: finalPrompt, agentRole: AgentRole.CASTING_DIRECTOR, linkedMessageId: messageId });
+  logDebug('req', 'Casting Director Agent: Generate Cast', { idea }, { model: modelName, finalPrompt: finalPrompt, dynamicPrompt: promptTemplate, agentRole: AgentRole.CASTING_DIRECTOR, linkedMessageId: messageId });
 
   const text = await agentManager.sendMessage(AgentRole.CASTING_DIRECTOR, session, finalPrompt, [], {
     model: modelName,
     finalPrompt: finalPrompt,
-    dynamicPrompt: prompt,
+    dynamicPrompt: promptTemplate,
     messageId: messageId
   });
 
@@ -291,24 +297,29 @@ export const generateLocations = async (
   });
 
   const charContext = characters.map(c => `- ${c.name} (${c.role})`).join('\n');
-  const prompt = `
-    PROJECT IDEA: "${idea}"
+
+  const promptTemplate = `
+    PROJECT IDEA: "{{idea}}"
     CHARACTERS:
-    ${charContext}
+    {{charContext}}
 
     INSTRUCTIONS:
     Generate the Locations where this story takes place.
   `;
 
+  const prompt = promptTemplate
+    .replace('{{idea}}', idea)
+    .replace('{{charContext}}', charContext);
+
   // INTERCEPT FOR REVIEW
   const finalPrompt = await checkReviewMode(prompt, 'Location Scout: Generate Locations');
   const messageId = crypto.randomUUID();
-  logDebug('req', 'Location Scout Agent: Generate Locations', { idea }, { model: modelName, finalPrompt: finalPrompt, agentRole: AgentRole.LOCATION_SCOUT, linkedMessageId: messageId });
+  logDebug('req', 'Location Scout Agent: Generate Locations', { idea }, { model: modelName, finalPrompt: finalPrompt, dynamicPrompt: promptTemplate, agentRole: AgentRole.LOCATION_SCOUT, linkedMessageId: messageId });
 
   const text = await agentManager.sendMessage(AgentRole.LOCATION_SCOUT, session, finalPrompt, [], {
     model: modelName,
     finalPrompt: finalPrompt,
-    dynamicPrompt: prompt,
+    dynamicPrompt: promptTemplate,
     messageId: messageId
   });
 
@@ -415,9 +426,9 @@ export const generateScreenplay = async (
     });
 
     // 3. Generate Full Screenplay
-    const prompt = `
+    const promptTemplate = `
       TASK: Write the complete screenplay for this project.
-      DURATION: ${project.final_render.total_duration_sec} seconds.
+      DURATION: {{duration}} seconds.
       
       INSTRUCTIONS:
       1. Create a sequence of scenes that tell the story.
@@ -426,6 +437,8 @@ export const generateScreenplay = async (
       4. Ensure the total duration matches the target duration.
     `;
 
+    const prompt = promptTemplate.replace('{{duration}}', project.final_render.total_duration_sec.toString());
+
     // INTERCEPT FOR REVIEW
     const finalPrompt = await checkReviewMode(prompt, 'Screenwriter: Generate Screenplay');
 
@@ -433,6 +446,7 @@ export const generateScreenplay = async (
     logDebug('req', 'Screenwriter Agent: Generate Screenplay', {}, {
       model: modelName,
       finalPrompt: finalPrompt,
+      dynamicPrompt: promptTemplate,
       agentRole: AgentRole.SCREENWRITER,
       linkedMessageId: messageId
     });
@@ -440,7 +454,7 @@ export const generateScreenplay = async (
     const text = await agentManager.sendMessage(AgentRole.SCREENWRITER, chatSession, finalPrompt, [], {
       model: modelName,
       finalPrompt: finalPrompt,
-      dynamicPrompt: prompt,
+      dynamicPrompt: promptTemplate,
       messageId: messageId
     });
 
