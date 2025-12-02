@@ -381,21 +381,21 @@ export const analyzeStoryConcept = async (
   const locationResult = await generateLocations(idea, projectBackbone.database.characters);
   projectBackbone.database.locations = locationResult;
 
-  // 4. SCREENWRITER
-  logDebug('info', 'Orchestrator: Calling Screenwriter...', {});
-  projectBackbone = await generateScreenplay(projectBackbone);
+  // 4. SCREENWRITER (SEQUENCER)
+  logDebug('info', 'Orchestrator: Calling Screenwriter (Sequencer)...', {});
+  projectBackbone = await generateSequencer(projectBackbone);
 
   return projectBackbone;
 };
 // --- AGENTIC WORKFLOW: STEP 2 - SCREENPLAY (SCREENWRITER AGENT) ---
-// --- AGENTIC WORKFLOW: STEP 2 - SCREENPLAY (SCREENWRITER AGENT) ---
-export const generateScreenplay = async (
+// --- AGENTIC WORKFLOW: STEP 2 - SEQUENCER (SCREENWRITER AGENT) ---
+export const generateSequencer = async (
   project: import("../types").ProjectBackbone
 ): Promise<import("../types").ProjectBackbone> => {
   try {
     const { database, meta_data, config } = project;
 
-    logDebug('info', 'Agentic Workflow', { step: '2. Generating Screenplay (Screenwriter Agent)' });
+    logDebug('info', 'Agentic Workflow', { step: '2. Generating Sequencer (Screenwriter Agent)' });
 
     const modelName = "gemini-2.5-flash";
     const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "application/json" } });
@@ -425,9 +425,9 @@ export const generateScreenplay = async (
       finalPrompt: fullSystemInstruction
     });
 
-    // 3. Generate Full Screenplay
+    // 3. Generate Sequencer (Beat Sheet)
     const promptTemplate = `
-      TASK: Write the complete screenplay for this project.
+      TASK: Create the Sequencer (Beat Sheet) for this project.
       DURATION: {{duration}} seconds.
       
       INSTRUCTIONS:
@@ -436,19 +436,21 @@ export const generateScreenplay = async (
       3. For each scene, provide:
          - Slugline
          - Synopsis
-         - Script Content (Dialogue/Action)
+         - Narrative Goal
+         - Estimated Duration
          - location_ref_id: The exact ID of the location from the context.
          - characters_in_scene: An array of exact IDs of characters present in the scene.
-      4. Ensure the total duration matches the target duration.
+      4. DO NOT WRITE THE SCRIPT CONTENT (DIALOGUE/ACTION) YET. Only the structure.
+      5. Ensure the total duration matches the target duration.
     `;
 
     const prompt = promptTemplate.replace('{{duration}}', project.final_render.total_duration_sec.toString());
 
     // INTERCEPT FOR REVIEW
-    const finalPrompt = await checkReviewMode(prompt, 'Screenwriter: Generate Screenplay');
+    const finalPrompt = await checkReviewMode(prompt, 'Screenwriter: Generate Sequencer');
 
     const messageId = crypto.randomUUID();
-    logDebug('req', 'Screenwriter Agent: Generate Screenplay', {}, {
+    logDebug('req', 'Screenwriter Agent: Generate Sequencer', {}, {
       model: modelName,
       finalPrompt: finalPrompt,
       dynamicPrompt: promptTemplate,
@@ -464,7 +466,7 @@ export const generateScreenplay = async (
     });
 
     const result = JSON.parse(text);
-    logDebug('res', 'Screenwriter Agent: Screenplay Generated', { result }, {
+    logDebug('res', 'Screenwriter Agent: Sequencer Generated', { result }, {
       agentRole: AgentRole.SCREENWRITER,
       linkedMessageId: messageId
     });
@@ -474,11 +476,9 @@ export const generateScreenplay = async (
     const generatedScenes = result.scenes.map((s: any) => ({
       ...s,
       id: crypto.randomUUID(),
-      characters_in_scene: s.characters_in_scene || [], // Ensure array exists
-      shots: [], // Initialize empty shots
-      script_content: {
-        lines: s.script_content?.lines?.map((l: any) => ({ ...l, id: crypto.randomUUID() })) || []
-      }
+      characters_in_scene: s.characters_in_scene || [],
+      shots: [],
+      script_content: { lines: [] } // Empty script content
     }));
 
     return {
@@ -490,7 +490,128 @@ export const generateScreenplay = async (
     };
 
   } catch (error) {
-    logDebug('error', 'Generate Screenplay Failed', error);
+    logDebug('error', 'Generate Sequencer Failed', error);
+    throw error;
+  }
+};
+
+// --- AGENTIC WORKFLOW: STEP 3 - SCRIPT CONTENT (SCREENWRITER AGENT) ---
+export const generateScriptContent = async (
+  project: import("../types").ProjectBackbone
+): Promise<import("../types").ProjectBackbone> => {
+  try {
+    const { database, meta_data, config } = project;
+
+    logDebug('info', 'Agentic Workflow', { step: '3. Generating Script Content (Screenwriter Agent)' });
+
+    const modelName = "gemini-2.5-flash";
+    const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "application/json" } });
+
+    // 1. Prepare Context with Existing Scenes
+    const bibleContext = `
+      PRODUCTION BIBLE CONTEXT:
+      Title: ${meta_data.title}
+      Tone: ${config.tone_style}
+      Intent: ${meta_data.user_intent}
+      
+      CHARACTERS:
+      ${database.characters.map(c => `- [ID: ${c.id}] ${c.name} (${c.role})`).join('\n')}
+      
+      LOCATIONS:
+      ${database.locations.map(l => `- [ID: ${l.id}] ${l.name}`).join('\n')}
+
+      EXISTING SCENES (SEQUENCER):
+      ${database.scenes.map((s, i) => `
+        SCENE ${i + 1}: ${s.slugline}
+        ID: ${s.id}
+        SYNOPSIS: ${s.synopsis}
+        CHARACTERS: ${s.characters_in_scene?.join(', ')}
+      `).join('\n')}
+    `;
+
+    // 2. Initialize Screenwriter Agent
+    const systemInstruction = DEFAULT_SYSTEM_INSTRUCTIONS[AgentRole.SCREENWRITER];
+    const fullSystemInstruction = `${systemInstruction}\n\n${bibleContext}`;
+
+    const agentManager = AgentManager.getInstance();
+    const chatSession = agentManager.getAgent(AgentRole.SCREENWRITER, model, fullSystemInstruction, {
+      model: modelName,
+      dynamicPrompt: fullSystemInstruction,
+      finalPrompt: fullSystemInstruction
+    });
+
+    // 3. Generate Script Content
+    const promptTemplate = `
+      TASK: Write the Script Content (Dialogue and Action) for the EXISTING SCENES.
+      
+      INSTRUCTIONS:
+      1. For EACH scene in the sequencer, write the full script content.
+      2. Use the standard screenplay format (Action, Dialogue, Parenthetical, Transition).
+      3. Respect the Synopsis and Characters defined for each scene.
+      4. Output a JSON object with a "scenes" array.
+      5. Each item in the "scenes" array MUST have:
+         - "id": The EXACT ID of the scene from the context.
+         - "script_content": { "lines": [ ... ] }
+    `;
+
+    // INTERCEPT FOR REVIEW
+    const finalPrompt = await checkReviewMode(promptTemplate, 'Screenwriter: Generate Script Content');
+
+    const messageId = crypto.randomUUID();
+    logDebug('req', 'Screenwriter Agent: Generate Script Content', {}, {
+      model: modelName,
+      finalPrompt: finalPrompt,
+      dynamicPrompt: promptTemplate,
+      agentRole: AgentRole.SCREENWRITER,
+      linkedMessageId: messageId
+    });
+
+    const text = await agentManager.sendMessage(AgentRole.SCREENWRITER, chatSession, finalPrompt, [], {
+      model: modelName,
+      finalPrompt: finalPrompt,
+      dynamicPrompt: promptTemplate,
+      messageId: messageId
+    });
+
+    const result = JSON.parse(text);
+    logDebug('res', 'Screenwriter Agent: Script Content Generated', { result }, {
+      agentRole: AgentRole.SCREENWRITER,
+      linkedMessageId: messageId
+    });
+
+    trackUsage(modelName, finalPrompt.length / 4, text.length / 4);
+
+    // Merge generated content into existing scenes
+    const updatedScenes = database.scenes.map((scene, index) => {
+      // Try to find by ID first
+      let generatedScene = result.scenes.find((s: any) => s.id === scene.id);
+
+      // Fallback: Try to find by index if ID match fails (AI often renumbers scenes)
+      if (!generatedScene && result.scenes[index]) {
+        generatedScene = result.scenes[index];
+      }
+
+      if (generatedScene && generatedScene.script_content) {
+        return {
+          ...scene,
+          script_content: {
+            lines: generatedScene.script_content.lines.map((l: any) => ({ ...l, id: crypto.randomUUID() }))
+          }
+        };
+      }
+      return scene;
+    });
+
+    return {
+      ...project,
+      database: {
+        ...database,
+        scenes: updatedScenes
+      }
+    };
+
+  } catch (error) {
+    logDebug('error', 'Generate Script Content Failed', error);
     throw error;
   }
 };
@@ -1132,8 +1253,9 @@ export const generateScript = async (
     project.config.aspect_ratio = '16:9';
     project.final_render.total_duration_sec = totalDuration;
 
-    // 3. SCREENWRITER: Generate Scenes
-    project = await generateScreenplay(project);
+    // 3. SCREENWRITER: Generate Scenes (Sequencer & Script)
+    project = await generateSequencer(project);
+    project = await generateScriptContent(project);
 
     // 4. DIRECTOR & DOP: Generate Shots for each Scene
     const allUiShots: Scene[] = [];

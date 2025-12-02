@@ -2,7 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import ScriptEditorInput from './ScriptEditorInput';
 
 import { ProjectBackbone, SceneTemplate, ScriptLine, CharacterTemplate } from '../types';
-import { generateScreenplay } from '../services/geminiService';
+import { generateScriptContent } from '../services/geminiService';
+
+
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragOverlay } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -332,7 +334,7 @@ const Step3Screenplay: React.FC<Props> = ({
     const handleGenerateScreenplay = async () => {
         setLoading(true);
         try {
-            const updatedProject = await generateScreenplay(project);
+            const updatedProject = await generateScriptContent(project);
             onUpdate({ project: updatedProject });
         } catch (err) {
             console.error(err);
