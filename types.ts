@@ -179,11 +179,35 @@ export const TARGET_AUDIENCES = [
 
 // --- AGENT SYSTEM TYPES ---
 export enum AgentRole {
-  DIRECTOR = 'Director',
+  SHOWRUNNER = 'Showrunner',
   SCREENWRITER = 'Screenwriter',
-  DESIGNER = 'Designer',
-  ANALYST = 'Analyst',
+  ART_DIRECTOR = 'Art Director',
+  DIRECTOR_OF_PHOTOGRAPHY = 'Director of Photography',
+  DIRECTOR = 'Director',
+  SCRIPT_SUPERVISOR = 'Script Supervisor',
   PROMPT_ENGINEER_VEO = 'Prompt Engineer Veo 3.1'
+}
+
+export interface ProductionBible {
+  meta: {
+    title: string;
+    logline: string;
+    genre: string;
+    tone: string;
+    target_audience: string;
+    message: string;
+  };
+  style_guide: {
+    visual_style: string;
+    color_palette: string;
+    lighting_mood: string;
+    camera_language: string;
+    reference_movies: string[];
+  };
+  characters: CharacterTemplate[];
+  locations: LocationTemplate[];
+  items: ItemTemplate[];
+  scenes: SceneTemplate[];
 }
 
 export interface AgentMessage {
@@ -320,6 +344,7 @@ export interface ShotTemplate {
     focal_length?: string; // e.g., "35mm", "85mm"
     depth_of_field?: string; // e.g., "Shallow", "Deep"
   };
+  lighting?: string; // e.g., "Natural", "Cinematic", "Hard"
   content: {
     ui_description: string; // Human readable description
     characters_in_shot: string[]; // IDs

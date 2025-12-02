@@ -223,160 +223,101 @@ export const resetAgentMemory = (role: AgentRole) => {
   AgentManager.getInstance().resetAgent(role);
 };
 
-// --- AGENTIC WORKFLOW: STEP 0 - SMART ANALYSIS (ANALYST AGENT) ---
-export const extractStoryManifest = async (
+// --- AGENTIC WORKFLOW: STEP 1 - PRODUCTION BIBLE (SHOWRUNNER AGENT) ---
+export const analyzeStoryConcept = async (
   idea: string,
-  settings: { language: string }
-): Promise<import("../types").StoryManifest> => {
-  const systemInstruction = DEFAULT_SYSTEM_INSTRUCTIONS[AgentRole.ANALYST];
+  settings: { tone: string; targetAudience: string; language: string; duration: number; videoType: string; visualStyle: string }
+): Promise<import("../types").ProjectBackbone> => {
 
+  const systemInstruction = DEFAULT_SYSTEM_INSTRUCTIONS[AgentRole.SHOWRUNNER];
   const modelName = "gemini-2.5-flash";
   const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "application/json" } });
 
+  // Get or Create SHOWRUNNER Agent
   const agentManager = AgentManager.getInstance();
-  const analystSession = agentManager.getAgent(AgentRole.ANALYST, model, systemInstruction, {
+  const showrunnerSession = agentManager.getAgent(AgentRole.SHOWRUNNER, model, systemInstruction, {
     model: modelName,
     dynamicPrompt: systemInstruction,
     finalPrompt: systemInstruction
   });
 
+  // 1. Define Prompt
   const prompt = `
-    ANALYZE THIS IDEA:
+    PROJECT IDEA:
     "${idea}"
 
-    Language: ${settings.language}
+    SETTINGS:
+    - Language: ${settings.language}
+    - Tone: ${settings.tone}
+    - Target Audience: ${settings.targetAudience}
+    - Duration: ${settings.duration}s
+    - Video Type: ${settings.videoType}
+    - Visual Style: ${settings.visualStyle}
 
-    OUTPUT JSON SCHEMA:
-    {
-      "pitch": "string",
-      "entities": {
-        "characters": [{ "name": "string", "description": "string", "role": "string (optional)" }],
-        "locations": [{ "name": "string", "description": "string" }]
-      },
-      "plot_points": ["string"]
-    }
+    INSTRUCTIONS:
+    1. Analyze the idea and settings.
+    2. Generate the full Production Bible.
+    3. **CRITICAL**: Output JSON strictly matching the structure defined in your SYSTEM INSTRUCTIONS.
+       - Ensure 'characters' and 'locations' are fully detailed.
+       - Leave 'scenes' empty [] for now.
   `;
 
   // INTERCEPT FOR REVIEW
-  const finalPrompt = await checkReviewMode(prompt, 'Analyst: Extract Manifest');
+  const finalPrompt = await checkReviewMode(prompt, 'Showrunner: Generate Bible');
 
   const messageId = crypto.randomUUID();
-  logDebug('req', 'Analyst Agent: Extract Manifest', { idea }, { model: modelName, finalPrompt: finalPrompt, agentRole: AgentRole.ANALYST, linkedMessageId: messageId });
+  logDebug('req', 'Showrunner Agent: Generate Bible', { idea, settings }, { model: modelName, finalPrompt: finalPrompt, agentRole: AgentRole.SHOWRUNNER, linkedMessageId: messageId });
 
-  const text = await agentManager.sendMessage(AgentRole.ANALYST, analystSession, finalPrompt, [], {
+  // Use AgentManager to send message
+  const text = await agentManager.sendMessage(AgentRole.SHOWRUNNER, showrunnerSession, finalPrompt, [], {
     model: modelName,
     finalPrompt: finalPrompt,
     dynamicPrompt: prompt,
     messageId: messageId
   });
 
-  const manifest = JSON.parse(text);
-  logDebug('res', 'Analyst Agent: Manifest Extracted', { manifest }, { agentRole: AgentRole.ANALYST, linkedMessageId: messageId });
-
-  return manifest;
-};
-
-// --- AGENTIC WORKFLOW: STEP 1 - SKELETON GENERATION (DIRECTOR AGENT) ---
-export const analyzeStoryConcept = async (
-  idea: string,
-  settings: { tone: string; targetAudience: string; language: string; duration: number; videoType: string; visualStyle: string }
-): Promise<import("../types").ProjectBackbone> => {
-
-  // 1. Run Smart Analysis first
-  const manifest = await extractStoryManifest(idea, { language: settings.language });
-
-  const systemInstruction = DEFAULT_SYSTEM_INSTRUCTIONS[AgentRole.DIRECTOR];
-
-  const modelName = "gemini-2.5-flash";
-  const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "application/json" } });
-
-  // Get or Create DIRECTOR Agent
-  const agentManager = AgentManager.getInstance();
-  const directorSession = agentManager.getAgent(AgentRole.DIRECTOR, model, systemInstruction, {
-    model: modelName,
-    dynamicPrompt: systemInstruction, // System instruction is static for now, but good to show
-    finalPrompt: systemInstruction
-  });
-
-  // 2. Define Template
-  const promptTemplate = `
-    INPUT:
-    - Idea: "{{idea}}"
-    - Type: {{videoType}}
-    - Visual Style: {{visualStyle}}
-    - Tone: {{tone}}
-    - Audience: {{targetAudience}}
-    - Language: {{language}}
-    - Total Duration: {{duration}}s
-
-    ANALYST MANIFEST (STRICT CONSTRAINTS):
-    {{manifest}}
-
-    INSTRUCTIONS:
-    1. **Characters**: Use the Manifest characters first. Expand details if needed.
-    2. **Locations**: Use the Manifest locations first.
-    3. **Scene List**: Break the story into logical scenes.
-       - Assign an \`estimated_duration_sec\` to each scene.
-       - **CRITICAL**: The sum of scene durations MUST equal {{duration}}s (+/- 5s).
-       - **DO NOT generate shots yet.** Leave the "shots" array empty [].
-
-    OUTPUT JSON SCHEMA:
-    {
-      "project_id": "uuid",
-      "meta_data": { "title": "string", "user_intent": "{{idea}}", "created_at": "${new Date().toISOString()}" },
-      "config": { "aspect_ratio": "16:9", "resolution": "1080p", "target_fps": 24, "primary_language": "{{language}}", "target_audience": "{{targetAudience}}", "tone_style": "{{tone}}" },
-      "global_assets": { "art_style_prompt": "string", "negative_prompt": "string", "music_theme_id": "string" },
-      "database": {
-        "characters": [{ "id": "char_01", "name": "string", "role": "string", "visual_seed": { "description": "string" } }],
-        "locations": [{ "id": "loc_01", "name": "string", "environment_prompt": "string", "interior_exterior": "INT" }],
-        "scenes": [{ 
-          "scene_index": 1, 
-          "id": "sc_01", 
-          "slugline": "EXT. FOREST - DAY", 
-          "slugline_elements": { "int_ext": "EXT.", "location": "FOREST", "time": "DAY" },
-          "synopsis": "A brief description of what happens in the scene.",
-          "location_ref_id": "string", 
-          "narrative_goal": "string", 
-          "estimated_duration_sec": 10, 
-          "shots": [] 
-        }]
-      },
-      "final_render": { "total_duration_sec": {{duration}} }
-    }
-  `;
-
-  // 3. Fill Template
-  const finalPrompt = promptTemplate
-    .replace(/{{idea}}/g, idea)
-    .replace(/{{videoType}}/g, settings.videoType)
-    .replace(/{{visualStyle}}/g, settings.visualStyle)
-    .replace(/{{tone}}/g, settings.tone)
-    .replace(/{{targetAudience}}/g, settings.targetAudience)
-    .replace(/{{language}}/g, settings.language)
-    .replace(/{{duration}}/g, settings.duration.toString())
-    .replace(/{{manifest}}/g, JSON.stringify(manifest, null, 2));
-
-  // INTERCEPT FOR REVIEW
-  const reviewedPrompt = await checkReviewMode(finalPrompt, 'Director: Generate Skeleton');
-
-  const messageId = crypto.randomUUID();
-  logDebug('req', 'Director Agent: Generate Skeleton', { idea, manifest }, { model: modelName, finalPrompt: reviewedPrompt, agentRole: AgentRole.DIRECTOR, linkedMessageId: messageId });
-
-  // Use AgentManager to send message (handles logging)
-  const text = await agentManager.sendMessage(AgentRole.DIRECTOR, directorSession, reviewedPrompt, [], {
-    model: modelName,
-    finalPrompt: reviewedPrompt,
-    dynamicPrompt: promptTemplate, // Pass the raw template
-    messageId: messageId
-  });
+  const bible: import("../types").ProductionBible = JSON.parse(text);
+  logDebug('res', 'Showrunner Agent: Bible Generated', { bible }, { agentRole: AgentRole.SHOWRUNNER, linkedMessageId: messageId });
 
   trackUsage(modelName, finalPrompt.length / 4, text.length / 4);
-  return JSON.parse(text);
+
+  // Map ProductionBible to ProjectBackbone
+  const projectBackbone: import("../types").ProjectBackbone = {
+    project_id: crypto.randomUUID(),
+    meta_data: {
+      title: bible.meta.title,
+      user_intent: idea,
+      created_at: new Date().toISOString()
+    },
+    config: {
+      aspect_ratio: "16:9", // Default, can be changed later
+      resolution: "1080p",
+      target_fps: 24,
+      primary_language: settings.language,
+      target_audience: settings.targetAudience,
+      tone_style: settings.tone,
+      has_dialogue: true,
+      has_voiceover: false
+    },
+    global_assets: {
+      art_style_prompt: `${bible.style_guide.visual_style}, ${bible.style_guide.lighting_mood}, ${bible.style_guide.color_palette}`,
+      negative_prompt: "text, watermark, bad quality, blurry",
+      music_theme_id: "default"
+    },
+    database: {
+      characters: bible.characters.map(c => ({ ...c, id: crypto.randomUUID() })),
+      locations: bible.locations.map(l => ({ ...l, id: crypto.randomUUID() })),
+      items: bible.items.map(i => ({ ...i, id: crypto.randomUUID() })),
+      scenes: []
+    },
+    final_render: {
+      total_duration_sec: settings.duration
+    }
+  };
+
+  return projectBackbone;
 };
-
-// ... (rest of file)
-
-// --- 2.5 Generate Screenplay (Step 3) (SCREENWRITER AGENT) ---
+// --- AGENTIC WORKFLOW: STEP 2 - SCREENPLAY (SCREENWRITER AGENT) ---
 export const generateScreenplay = async (
   project: import("../types").ProjectBackbone
 ): Promise<import("../types").ProjectBackbone> => {
@@ -384,58 +325,48 @@ export const generateScreenplay = async (
     const { database, meta_data, config } = project;
     const scenes = database.scenes;
 
-    logDebug('info', 'Agentic Workflow', { step: '3. Generating Screenplay (Screenwriter Agent)', sceneCount: scenes.length });
+    logDebug('info', 'Agentic Workflow', { step: '2. Generating Screenplay (Screenwriter Agent)', sceneCount: scenes.length });
 
     const modelName = "gemini-2.5-flash";
     const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "application/json" } });
 
-    // 1. Initialize Screenwriter Agent with Project Bible
-    const projectBibleTemplate = DEFAULT_SYSTEM_INSTRUCTIONS[AgentRole.SCREENWRITER];
+    // 1. Prepare Bible Context
+    const bibleContext = `
+      PRODUCTION BIBLE CONTEXT:
+      Title: ${meta_data.title}
+      Tone: ${config.tone_style}
+      Intent: ${meta_data.user_intent}
+      
+      CHARACTERS:
+      ${database.characters.map(c => `- ${c.name} (${c.role}): ${c.visual_seed.description}`).join('\n')}
+      
+      LOCATIONS:
+      ${database.locations.map(l => `- ${l.name}: ${l.environment_prompt}`).join('\n')}
+    `;
 
-    const projectBible = projectBibleTemplate
-      .replace(/{{title}}/g, meta_data.title)
-      .replace(/{{tone}}/g, config.tone_style)
-      .replace(/{{intent}}/g, meta_data.user_intent)
-      .replace(/{{language}}/g, config.primary_language)
-      .replace(/{{characters}}/g, database.characters.map(c => `- ${c.name} (${c.role}): ${c.visual_seed.description}`).join('\n'))
-      .replace(/{{locations}}/g, database.locations.map(l => `- ${l.name} (${l.interior_exterior}): ${l.environment_prompt}`).join('\n'));
+    // 2. Initialize Screenwriter Agent
+    const baseSystemInstruction = DEFAULT_SYSTEM_INSTRUCTIONS[AgentRole.SCREENWRITER];
+    const fullSystemInstruction = `${baseSystemInstruction}\n\n${bibleContext}`;
 
-    // Get or Create SCREENWRITER Agent
     const agentManager = AgentManager.getInstance();
-    // Note: We might want to reset the screenwriter if it's a new generation run, but for now we keep persistence.
-    // Ideally, we check if the bible changed. For simplicity, we assume the agent persists.
-    // If we wanted to "reset" the memory for a new project, we'd clear the agent from the map.
-    const chatSession = agentManager.getAgent(AgentRole.SCREENWRITER, model, projectBible, {
+    const chatSession = agentManager.getAgent(AgentRole.SCREENWRITER, model, fullSystemInstruction, {
       model: modelName,
-      dynamicPrompt: projectBibleTemplate,
-      finalPrompt: projectBible
+      dynamicPrompt: fullSystemInstruction,
+      finalPrompt: fullSystemInstruction
     });
 
     const updatedScenes: import("../types").SceneTemplate[] = [];
 
+    // 3. Generate Scenes Sequentially
     for (let i = 0; i < scenes.length; i++) {
       const scene = scenes[i];
 
-      // If script content already exists, inject it into history to maintain context
-      if (scene.script_content && scene.script_content.lines && scene.script_content.lines.length > 0) {
-        updatedScenes.push(scene);
-
-        // Manually inject into history via sendMessage (simulating memory)
-        await agentManager.sendMessage(AgentRole.SCREENWRITER, chatSession, `
-          [SYSTEM: Scene ${i + 1} was already written. Here is the content for your memory:]
-          Slugline: ${scene.slugline}
-          Content: ${JSON.stringify(scene.script_content)}
-        `);
-        continue;
-      }
-
-      // 1. Define Template
-      const scenePromptTemplate = `
-        WRITE SCENE {{sceneIndex}} of {{totalScenes}}:
-        
-        Slugline: {{slugline}}
-        Goal: {{goal}}
-        Estimated Duration: {{duration}} seconds
+      const sceneRequest = `
+        WRITE SCENE ${i + 1} of ${scenes.length}:
+        Slugline: ${scene.slugline}
+        Goal: ${scene.narrative_goal}
+        Synopsis: ${scene.synopsis || "No specific synopsis."}
+        Estimated Duration: ${scene.estimated_duration_sec} seconds
         
         OUTPUT JSON SCHEMA:
         {
@@ -450,68 +381,43 @@ export const generateScreenplay = async (
         }
       `;
 
-      let attempts = 0;
-      const MAX_ATTEMPTS = 3;
-      let currentScenePrompt = scenePromptTemplate;
-      let feedbackHistory: string[] = [];
+      // INTERCEPT FOR REVIEW
+      const finalPrompt = await checkReviewMode(sceneRequest, `Screenwriter: Scene ${scene.slugline}`);
 
-      while (attempts < MAX_ATTEMPTS) {
-        attempts++;
+      const messageId = crypto.randomUUID();
+      logDebug('req', `Screenwriter Agent: Scene ${scene.slugline}`, { sceneId: scene.id }, {
+        model: modelName,
+        finalPrompt: finalPrompt,
+        agentRole: AgentRole.SCREENWRITER,
+        linkedMessageId: messageId
+      });
 
-        // 2. Fill Template (with feedback if retry)
-        let scenePrompt = currentScenePrompt
-          .replace(/{{sceneIndex}}/g, (i + 1).toString())
-          .replace(/{{totalScenes}}/g, scenes.length.toString())
-          .replace(/{{slugline}}/g, scene.slugline_elements
-            ? `${scene.slugline_elements.int_ext} ${scene.slugline_elements.location} - ${scene.slugline_elements.time}`
-            : scene.slugline)
-          .replace(/{{goal}}/g, scene.synopsis ? `${scene.synopsis} (Goal: ${scene.narrative_goal})` : scene.narrative_goal)
-          .replace(/{{duration}}/g, scene.estimated_duration_sec.toString());
+      try {
+        const text = await agentManager.sendMessage(AgentRole.SCREENWRITER, chatSession, finalPrompt, [], {
+          model: modelName,
+          finalPrompt: finalPrompt,
+          dynamicPrompt: sceneRequest,
+          messageId: messageId
+        });
 
-        try {
-          // INTERCEPT FOR REVIEW
-          const finalPrompt = await checkReviewMode(scenePrompt, `Screenwriter: Scene ${scene.slugline} (Attempt ${attempts})`);
+        const content = JSON.parse(text);
 
-          const messageId = crypto.randomUUID();
-          logDebug('req', `Screenwriter Agent: Scene ${scene.slugline} (Attempt ${attempts})`, { sceneId: scene.id }, {
-            model: modelName,
-            dynamicPrompt: currentScenePrompt,
-            finalPrompt: finalPrompt,
-            agentRole: AgentRole.SCREENWRITER,
-            linkedMessageId: messageId
-          });
+        logDebug('res', `Screenwriter Agent: Scene ${scene.slugline}`, { content }, {
+          agentRole: AgentRole.SCREENWRITER,
+          linkedMessageId: messageId
+        });
 
-          // Use AgentManager to send message
-          const text = await agentManager.sendMessage(AgentRole.SCREENWRITER, chatSession, finalPrompt, [], {
-            model: modelName,
-            finalPrompt: finalPrompt,
-            dynamicPrompt: currentScenePrompt, // Pass the raw template
-            messageId: messageId
-          });
-          const content = JSON.parse(text);
-
-          logDebug('res', `Screenwriter Agent: Scene ${scene.slugline}`, { content }, {
-            agentRole: AgentRole.SCREENWRITER,
-            linkedMessageId: messageId
-          });
-
-          trackUsage(modelName, finalPrompt.length / 4, text.length / 4);
-
-          const newScene = {
-            ...scene,
-            script_content: {
-              lines: Array.isArray(content.lines) ? content.lines.map((l: any) => ({ ...l, id: crypto.randomUUID() })) : []
-            }
-          };
-          updatedScenes.push(newScene);
-          break; // Success!
-
-        } catch (error) {
-          console.error(`Failed to generate scene ${scene.slugline}`, error);
-          if (attempts === MAX_ATTEMPTS) {
-            updatedScenes.push(scene); // Keep original if failed
+        const newScene = {
+          ...scene,
+          script_content: {
+            lines: Array.isArray(content.lines) ? content.lines.map((l: any) => ({ ...l, id: crypto.randomUUID() })) : []
           }
-        }
+        };
+        updatedScenes.push(newScene);
+
+      } catch (error) {
+        console.error(`Failed to generate scene ${scene.slugline}`, error);
+        updatedScenes.push(scene); // Keep original if failed
       }
     }
 
@@ -625,7 +531,7 @@ export const rejectPendingRequest = (id: string) => {
   }
 };
 
-const checkReviewMode = async (prompt: string, title: string): Promise<string> => {
+async function checkReviewMode(prompt: string, title: string): Promise<string> {
   console.log(`[GeminiService] checkReviewMode for "${title}". ReviewMode is: ${isReviewMode}`);
 
   if (!isReviewMode) return prompt;
@@ -717,12 +623,12 @@ export const subscribeToDebugLog = (listener: LogListener) => {
   return () => { listeners = listeners.filter(l => l !== listener); };
 };
 
-export const logDebug = (
+export function logDebug(
   type: LogType,
   title: string,
   data: any,
   options?: { model?: string; dynamicPrompt?: string; finalPrompt?: string; agentRole?: AgentRole; linkedMessageId?: string }
-) => {
+) {
   const payload = {
     type,
     title,
@@ -731,7 +637,7 @@ export const logDebug = (
     ...options
   };
   listeners.forEach(l => l(payload));
-};
+}
 
 // --- CONSTANTS FOR UI SYNC ---
 const VALID_SHOT_TYPES = ["Wide Shot", "Medium Shot", "Close Up", "Extreme Close Up"];
@@ -767,7 +673,7 @@ export const subscribeToUsage = (listener: UsageListener) => {
   return () => { usageListeners = usageListeners.filter(l => l !== listener); };
 };
 
-const trackUsage = (model: string, inputTokens: number, outputTokens: number, specialCost?: number) => {
+function trackUsage(model: string, inputTokens: number, outputTokens: number, specialCost?: number) {
   let cost = 0;
 
   // Pricing Logic (User Provided)
@@ -783,81 +689,146 @@ const trackUsage = (model: string, inputTokens: number, outputTokens: number, sp
   }
   const stats: UsageStats = { inputTokens, outputTokens, cost };
   usageListeners.forEach(l => l(stats));
-};
+}
 
-// --- AGENTIC WORKFLOW: STEP 1 - SKELETON GENERATION ---
-
-
-// --- AGENTIC WORKFLOW: STEP 2 - SHOT GENERATION ---
-const generateSceneShots = async (
+// --- AGENTIC WORKFLOW: STEP 3 - SHOT LIST (DIRECTOR & DoP AGENTS) ---
+export const generateShotList = async (
   scene: import("../types").SceneTemplate,
-  context: import("../types").ProjectBackbone
+  project: import("../types").ProjectBackbone
 ): Promise<import("../types").ShotTemplate[]> => {
-  const template = `
-    Role: Director of Photography & Editor.
-    Task: Generate a detailed SHOT LIST for ONE specific scene.
-    
-    CONTEXT:
-    - Project Title: "${context.meta_data.title}"
-    - Style: "${context.config.tone_style}"
-    - Characters: ${JSON.stringify(context.database.characters.map(c => ({ id: c.id, name: c.name, role: c.role })))}
-    - Items (Props/Vehicles): ${JSON.stringify(context.database.items.map(i => ({ id: i.id, name: i.name, type: i.type })))}
-    - Location: ${context.database.locations.find(l => l.id === scene.location_ref_id)?.name || "Unknown"}
-    
-    SCENE TO VISUALIZE:
-    - Slugline: ${scene.slugline}
-    - Goal: ${scene.narrative_goal}
-    - Duration: ${scene.estimated_duration_sec} seconds
-
-    INSTRUCTIONS:
-    1. Break this scene into a sequence of shots.
-    2. **CRITICAL**: The sum of shot durations MUST equal ${scene.estimated_duration_sec}s.
-    3. For each shot, you MUST generate the \`veo_elements\` object for high-quality video generation.
-    4. **Items**: If a character interacts with an item (e.g., holding a sword), add its ID to \`items_in_shot\`.
-
-    OUTPUT JSON (Array of Shots):
-    [
-      {
-        "shot_index": 1,
-        "duration_sec": 4,
-        "composition": { "shot_type": "Wide", "camera_movement": "Static", "angle": "Eye Level" },
-        "content": { 
-            "ui_description": "Arthur stands in the forest holding Excalibur.", 
-            "characters_in_shot": ["char_id"], 
-            "items_in_shot": ["item_id"],
-            "final_image_prompt": "Cinematic wide shot of Arthur...", 
-            "video_motion_prompt": "Arthur raises the sword...",
-            "veo_elements": {
-                "cinematography": "Wide shot, static camera, cinematic lighting",
-                "subject_context": "Arthur standing in an ancient forest",
-                "action": "Arthur raises a glowing sword",
-                "style_ambiance": "Mystical, foggy, dramatic lighting",
-                "audio_prompt": "Wind rustling, sword humming",
-                "negative_prompt": "Blurry, distorted, text, watermark"
-            }
-        },
-        "audio": { "audio_context": "Wind rustling", "is_voice_over": false }
-      }
-    ]
-  `;
+  const agentManager = AgentManager.getInstance();
+  const modelName = "gemini-2.5-flash";
+  const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "application/json" } });
 
   try {
+    // 1. DIRECTOR AGENT: Create Shot List
+    const directorSystemPrompt = DEFAULT_SYSTEM_INSTRUCTIONS[AgentRole.DIRECTOR];
+    const directorSession = agentManager.getAgent(AgentRole.DIRECTOR, model, directorSystemPrompt, {
+      model: modelName,
+      dynamicPrompt: directorSystemPrompt,
+      finalPrompt: directorSystemPrompt
+    });
+
+    const directorRequest = `
+        SCENE CONTEXT:
+        Slugline: ${scene.slugline}
+        Goal: ${scene.narrative_goal}
+        Synopsis: ${scene.synopsis || "N/A"}
+        Duration: ${scene.estimated_duration_sec}s
+        Script: ${JSON.stringify(scene.script_content?.lines || [])}
+
+        TASK:
+        Break this scene into a sequence of shots.
+        Total Duration must be approx ${scene.estimated_duration_sec}s.
+
+        OUTPUT JSON SCHEMA:
+        {
+          "shots": [
+            {
+              "shot_index": 1,
+              "duration_sec": 4,
+              "content": { "ui_description": "Description of action" },
+              "composition": { "shot_type": "Wide" }
+            }
+          ]
+        }
+      `;
+
     // INTERCEPT FOR REVIEW
-    const finalPrompt = await checkReviewMode(template, `Generate Shots: ${scene.slugline}`);
+    const finalDirectorPrompt = await checkReviewMode(directorRequest, `Director: Shot List for ${scene.slugline}`);
+    const directorMsgId = crypto.randomUUID();
 
-    const modelName = "gemini-2.5-flash";
-    const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "application/json" } });
+    logDebug('req', `Director Agent: Shot List for ${scene.slugline}`, { sceneId: scene.id }, {
+      model: modelName,
+      agentRole: AgentRole.DIRECTOR,
+      linkedMessageId: directorMsgId
+    });
 
-    const result = await model.generateContent(finalPrompt);
-    const text = result.response.text();
-    const shots = JSON.parse(text);
+    const directorResponse = await agentManager.sendMessage(AgentRole.DIRECTOR, directorSession, finalDirectorPrompt, [], {
+      model: modelName,
+      messageId: directorMsgId
+    });
 
-    trackUsage(modelName, finalPrompt.length / 4, text.length / 4);
+    const directorJson = JSON.parse(directorResponse);
+    let shots: import("../types").ShotTemplate[] = (directorJson.shots || []).map((s: any) => ({
+      ...s,
+      id: crypto.randomUUID(),
+      audio: { is_voice_over: false }, // Default
+      composition: { ...s.composition, camera_movement: "Static" } // Default
+    }));
 
-    return Array.isArray(shots) ? shots.map((s: any) => ({ ...s, id: crypto.randomUUID() })) : [];
+    logDebug('res', `Director Agent: Generated ${shots.length} shots`, { shots }, { linkedMessageId: directorMsgId });
+
+
+    // 2. DoP AGENT: Refine Visuals
+    const dopSystemPrompt = DEFAULT_SYSTEM_INSTRUCTIONS[AgentRole.DIRECTOR_OF_PHOTOGRAPHY];
+    const dopSession = agentManager.getAgent(AgentRole.DIRECTOR_OF_PHOTOGRAPHY, model, dopSystemPrompt, {
+      model: modelName,
+      dynamicPrompt: dopSystemPrompt,
+      finalPrompt: dopSystemPrompt
+    });
+
+    // We can process shots in batch or individually. Batch is faster.
+    const dopRequest = `
+        PROJECT STYLE: ${project.config.tone_style}
+        
+        SHOT LIST TO REFINE:
+        ${JSON.stringify(shots.map(s => ({ index: s.shot_index, description: s.content.ui_description, type: s.composition.shot_type })))}
+
+        TASK:
+        For EACH shot, define the Cinematography (Lighting, Camera Movement, Angle).
+        
+        OUTPUT JSON SCHEMA:
+        {
+          "updates": [
+            {
+              "shot_index": 1,
+              "composition": { "camera_movement": "...", "angle": "..." },
+              "lighting": "...",
+              "veo_elements": { "cinematography": "...", "style_ambiance": "..." }
+            }
+          ]
+        }
+      `;
+
+    const finalDoPPrompt = await checkReviewMode(dopRequest, `DoP: Refine Shots for ${scene.slugline}`);
+    const dopMsgId = crypto.randomUUID();
+
+    logDebug('req', `DoP Agent: Refine Shots for ${scene.slugline}`, {}, {
+      model: modelName,
+      agentRole: AgentRole.DIRECTOR_OF_PHOTOGRAPHY,
+      linkedMessageId: dopMsgId
+    });
+
+    const dopResponse = await agentManager.sendMessage(AgentRole.DIRECTOR_OF_PHOTOGRAPHY, dopSession, finalDoPPrompt, [], {
+      model: modelName,
+      messageId: dopMsgId
+    });
+
+    const dopJson = JSON.parse(dopResponse);
+    const updates = dopJson.updates || [];
+
+    // Merge Updates
+    shots = shots.map(shot => {
+      const update = updates.find((u: any) => u.shot_index === shot.shot_index);
+      if (update) {
+        return {
+          ...shot,
+          composition: { ...shot.composition, ...update.composition },
+          lighting: update.lighting,
+          content: { ...shot.content, veo_elements: update.veo_elements }
+        };
+      }
+      return shot;
+    });
+
+    logDebug('res', `DoP Agent: Refined Shots`, { shots }, { linkedMessageId: dopMsgId });
+
+    return shots;
 
   } catch (error) {
-    console.error(`Failed to generate shots for scene ${scene.id}`, error);
+    console.error(`Failed to generate shot list for scene ${scene.id}`, error);
+    logDebug('error', `Generate Shot List Failed`, error);
     return [];
   }
 };
@@ -1031,6 +1002,49 @@ export const populateScriptAudio = async (
   }
 };
 
+// --- Helper for Asset Conversion ---
+const createAssetFromTemplate = (
+  template: import("../types").CharacterTemplate | import("../types").LocationTemplate | import("../types").ItemTemplate,
+  type: AssetType
+): import("../types").Asset => {
+
+  // Extract details and description based on type
+  let details = "";
+  let description = "";
+
+  if (type === AssetType.CHARACTER) {
+    const char = template as import("../types").CharacterTemplate;
+    details = char.visual_seed.description;
+    description = char.visual_seed.description;
+  } else if (type === AssetType.LOCATION) {
+    const loc = template as import("../types").LocationTemplate;
+    details = loc.environment_prompt;
+    description = loc.description;
+  } else {
+    const item = template as import("../types").ItemTemplate;
+    details = item.visual_details;
+    description = item.description;
+  }
+
+  return {
+    id: template.id,
+    name: template.name,
+    type: type,
+    description: description,
+    visuals: {
+      subject: template.name,
+      details: details,
+      pose: type === AssetType.LOCATION ? "Wide establishing shot" : "Single Full body shot",
+      constraint: type === AssetType.LOCATION ? "Environment only" : "Single view only",
+      background: type === AssetType.LOCATION ? "Cinematic atmosphere" : "Isolated on white",
+      lighting: type === AssetType.LOCATION ? "Cinematic lighting" : "Studio lighting",
+      expression: "Neutral",
+      clothing: "Standard"
+    },
+    status: 'pending'
+  };
+};
+
 // --- 1. Generate Script (Relational Architecture) ---
 export const generateScript = async (
   idea: string,
@@ -1040,166 +1054,96 @@ export const generateScript = async (
   audioScript: import("../types").AudioScriptItem[] = []
 ): Promise<{ script: Scene[], assets: Asset[] }> => {
   try {
+    logDebug('info', 'Starting Full Generation Workflow', { idea, totalDuration, pacing });
 
-    // Serialize Audio Script for the prompt
-    const audioScriptText = JSON.stringify(audioScript.map(item => ({
-      speaker: item.speaker,
-      text: item.text,
-      duration: item.durationEstimate,
-      isBreak: item.isBreak
-    })));
-
-    // NEW STRICT SYSTEM PROMPT (Hierarchy & Reusability Rules)
-    const template = `
-  Role: Expert Director & Production Asset Manager.
-      Task: Create a VISUAL STORYBOARD(Screenplay) that perfectly matches the provided AUDIO SCRIPT.
-      
-      INPUT CONTEXT:
-      - Concept: "{{idea}}"
-    - Total Duration: { { totalDuration } } s
-      - Pacing: { { pacing } }
-  - Language: { { language } }
-      
-      AUDIO SCRIPT(SOURCE OF TRUTH):
-  { { audioScriptText } }
-
-  INSTRUCTIONS:
-  1. ** Synchronize Visuals **: You must create visual shots that correspond to the audio script. 
-         - A single dialogue line might need 1 shot, or multiple shots(e.g.cutting between characters).
-         - Ensure the total duration of your shots matches the audio script duration.
-      2. ** Visual Dynamism **:
-  { { pacingInstruction } }
-      
-      PHASE 1: WRITE THE SCRIPT(Sequences & Shots)
-    - Group shots into SEQUENCES based on location / time.
-      - Every shot MUST have a 'duration'.
-      - ** MODULAR ACTION DATA **:
-  - \`baseEnvironment\`: Describe ONLY the static environment/background (e.g., "A dark, misty forest with ancient trees").
-        - \`characterActions\`: List of objects { castId, action }. For EACH character in the shot, describe their specific action.
-        - \`itemStates\`: List of objects { itemId, state }. For EACH item in the shot, describe its state/position.
-      
-      PHASE 2: EXTRACT THE WORLD (Relational Database)
-      - Define unique LOCATIONS (Master & Sub-locations).
-      - Define unique CHARACTERS (consistent appearance).
-      - Define unique ITEMS (props).
-      - Assign IDs to everything.
-      
-      PHASE 3: LINK THEM
-      - Every shot MUST reference a locationId.
-      - Every shot MUST list castIds (characters in shot) and itemIds.
-    `;
-
-    const pacingInstruction = pacing === 'fast' ? "Use rapid cuts, dynamic camera movements, and high energy." :
-      pacing === 'slow' ? "Use long takes, slow pans/zooms, and atmospheric focus." :
-        "Balance establishing shots with action cuts.";
-
-    let prompt = template
-      .replace(/{{idea}}/g, idea)
-      .replace(/{{totalDuration}}/g, totalDuration.toString())
-      .replace(/{{pacing}}/g, pacing)
-      .replace(/{{language}}/g, language)
-      .replace('{{audioScriptText}}', audioScriptText)
-      .replace('{{pacingInstruction}}', pacingInstruction);
-
-    // --- DYNAMIC PLACEHOLDER REPLACEMENT ---
-    prompt = prompt.replace('{{valid_shot_types}}', JSON.stringify(VALID_SHOT_TYPES));
-    prompt = prompt.replace('{{valid_camera_angles}}', JSON.stringify(VALID_CAMERA_ANGLES));
-    prompt = prompt.replace('{{valid_composition_tags}}', JSON.stringify(VALID_COMPOSITION_TAGS));
-
-    // INTERCEPT FOR REVIEW
-    prompt = await checkReviewMode(prompt, 'Generate Script');
-
-    const modelName = "gemini-2.5-flash";
-    const model = genAI.getGenerativeModel({
-      model: modelName,
-      generationConfig: {
-        responseMimeType: "application/json",
-        // responseSchema: responseSchema as any, // Using JSON mode instead
-      },
+    // 1. SHOWRUNNER: Generate Bible (Assets) & Initial Project Backbone
+    let project = await analyzeStoryConcept(idea, {
+      tone: 'Standard', // Default
+      targetAudience: 'General Audience', // Default
+      language,
+      duration: totalDuration,
+      videoType: 'Short', // Default
+      visualStyle: 'Cinematic' // Default
     });
 
-    logDebug('req', 'Generate Script Prompt', { idea }, { model: modelName, dynamicPrompt: template, finalPrompt: prompt });
+    // Update project config
+    project.config.target_fps = 24;
+    project.config.resolution = '1080p';
+    project.config.aspect_ratio = '16:9';
+    project.final_render.total_duration_sec = totalDuration;
 
-    const result = await model.generateContent(prompt);
-    const response = result.response;
-    const json = response.text();
-    logDebug('res', 'Generate Script', { json });
+    // 3. SCREENWRITER: Generate Scenes
+    project = await generateScreenplay(project);
 
-    const rawData = JSON.parse(json);
-    const sequences = rawData.sequences || [];
-    const world = rawData.world || {};
-
-    // 1. Process Assets (Create Asset Objects)
-    const assets: Asset[] = [];
-
-    const createAsset = (def: any, type: AssetType): Asset => ({
-      id: def.id,
-      type: type,
-      name: def.name,
-      description: def.description,
-      parentId: def.parentId, // Capture Parent ID
-      locationType: def.type, // Capture MASTER/SUB
-      visuals: {
-        subject: def.name,
-        details: def.description,
-        pose: type === AssetType.LOCATION ? "Wide establishing shot" : "Single Full body shot",
-        constraint: type === AssetType.LOCATION ? "Environment only" : "Single view only",
-        background: type === AssetType.LOCATION ? "Cinematic atmosphere" : "Isolated on white",
-        lighting: type === AssetType.LOCATION ? "Cinematic lighting" : "Studio lighting",
-        expression: "Neutral",
-        clothing: "Standard"
-      },
-      status: 'pending'
-    });
-
-    (world.locations || []).forEach((l: any) => assets.push(createAsset(l, AssetType.LOCATION)));
-    (world.characters || []).forEach((c: any) => assets.push(createAsset(c, AssetType.CHARACTER)));
-    (world.items || []).forEach((i: any) => assets.push(createAsset(i, AssetType.ITEM)));
-
-    // 2. Build Script (Flatten Sequences into Shots)
-    const script: Scene[] = [];
+    // 4. DIRECTOR & DOP: Generate Shots for each Scene
+    const allUiShots: Scene[] = [];
     let shotCounter = 1;
 
-    sequences.forEach((seq: any) => {
-      const locAsset = assets.find(a => a.id === seq.locationId);
-      const locationName = locAsset ? locAsset.name : "UNKNOWN";
-      const fullSlug = `${locationName} - ${seq.time || 'DAY'} `;
-      const groupSceneId = seq.id || crypto.randomUUID();
+    // Process scenes sequentially to maintain context if needed, or parallel for speed
+    // Sequential is safer for rate limits and debugging
+    for (const scene of project.database.scenes) {
+      logDebug('info', `Generating shots for scene ${scene.scene_index}: ${scene.slugline}`, {});
 
-      (seq.shots || []).forEach((shot: any) => {
-        const usedAssets = [
-          ...(shot.castIds || []),
-          ...(shot.itemIds || [])
-        ];
+      // Generate shots for this scene
+      const shots = await generateShotList(scene, project);
 
-        script.push({
-          id: crypto.randomUUID(),
-          sceneId: groupSceneId,
+      // Update project model
+      scene.shots = shots;
+
+      // Map to UI 'Scene' (Shot) objects
+      shots.forEach(shot => {
+        // Find location asset to link
+        const locationAsset = project.database.locations.find(l => l.id === scene.location_ref_id);
+
+        allUiShots.push({
+          id: shot.id,
+          sceneId: scene.id,
           number: shotCounter++,
-          location: fullSlug,
-          time: seq.time || 'DAY',
-          locationAssetId: seq.locationId,
-          sceneContext: seq.context || "",
-          duration: shot.duration || 5,
-          shotType: shot.shotType || "Wide Shot",
-          cameraAngle: shot.cameraAngle || "Eye Level",
-          cameraMovement: shot.movement || "Static",
-          compositionTags: shot.compositionTags || [], // Map New Field
-          // description: shot.action || "", // REMOVED: Use actionData instead
-          veoMotionPrompt: shot.veoMotionPrompt || "",
-          lighting: seq.lighting || "Natural",
-          weather: seq.weather || "Clear",
-          dialogue: shot.dialogue || "",
-          narration: shot.narration || "",
-          sfx: shot.sfx || "",
-          music: shot.music || "",
-          transition: "Cut to",
-          usedAssetIds: usedAssets
+          location: scene.slugline,
+          time: scene.slugline_elements?.time || 'DAY',
+          locationAssetId: scene.location_ref_id,
+          sceneContext: scene.synopsis || '',
+          duration: shot.duration_sec,
+          shotType: shot.composition.shot_type,
+          cameraAngle: shot.composition.angle,
+          cameraMovement: shot.composition.camera_movement,
+          compositionTags: [],
+          actionData: {
+            baseEnvironment: `${locationAsset?.environment_prompt || "Generic Environment"}. ${shot.content.ui_description}`,
+            characterActions: [],
+            itemStates: []
+          },
+          lighting: shot.lighting || 'Standard',
+          weather: "Clear", // Default
+          dialogue: shot.audio.dialogue?.map(d => `${d.speaker}: ${d.text}`).join('\n') || "",
+          narration: shot.audio.is_voice_over ? shot.audio.audio_context : "",
+          sfx: shot.audio.specificAudioCues || "",
+          music: "",
+          transition: "Cut",
+          veoMotionPrompt: shot.content.video_motion_prompt || "",
+          usedAssetIds: [...shot.content.characters_in_shot, ...shot.content.items_in_shot],
+
+          // UI State
+          isGenerating: false,
+          imageUri: undefined,
+          videoUri: undefined
         });
       });
-    });
+    }
 
-    return { script, assets };
+    // 5. Convert Assets to UI Format
+    const uiAssets: Asset[] = [
+      ...project.database.characters.map(c => createAssetFromTemplate(c, AssetType.CHARACTER)),
+      ...project.database.locations.map(l => createAssetFromTemplate(l, AssetType.LOCATION)),
+      ...project.database.items.map(i => createAssetFromTemplate(i, AssetType.ITEM))
+    ];
+
+    logDebug('info', 'Full Generation Complete', { shotCount: allUiShots.length, assetCount: uiAssets.length });
+
+    return {
+      script: allUiShots,
+      assets: uiAssets
+    };
 
   } catch (error) {
     console.error("Script generation failed:", error);
@@ -1219,7 +1163,8 @@ export const extractAssets = async (script: Scene[]): Promise<{ assets: Asset[],
 // --- 3. Generate Image (Gemini 3 Pro) ---
 export const generateImage = async (
   prompt: string,
-  aspectRatio?: string // Optional: e.g. "16:9", "1:1". If not provided, AI decides format
+  aspectRatio?: string, // Optional: e.g. "16:9", "1:1". If not provided, AI decides format
+  logContext?: { agentRole: AgentRole; linkedMessageId: string }
 ): Promise<string> => {
   try {
     const modelName = 'gemini-3-pro-image-preview';
@@ -1227,7 +1172,12 @@ export const generateImage = async (
     // INTERCEPT FOR REVIEW
     const finalPrompt = await checkReviewMode(prompt, 'Generate Image');
 
-    logDebug('req', 'Generate Image', { prompt, aspectRatio }, { model: modelName, finalPrompt: finalPrompt });
+    logDebug('req', 'Generate Image', { prompt, aspectRatio }, {
+      model: modelName,
+      finalPrompt: finalPrompt,
+      agentRole: logContext?.agentRole,
+      linkedMessageId: logContext?.linkedMessageId
+    });
 
     if (!finalPrompt || finalPrompt.trim().length === 0) throw new Error("Prompt cannot be empty");
     const cleanPrompt = finalPrompt.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
@@ -1250,8 +1200,15 @@ export const generateImage = async (
 
     // Check for InlineData (base64)
     if (part && part.inlineData && part.inlineData.data) {
-      logDebug('res', 'Generate Image Success', { size: part.inlineData.data.length });
-      return `data: image / png; base64, ${part.inlineData.data} `;
+      const imageData = `data:image/png;base64,${part.inlineData.data}`;
+      logDebug('res', 'Generate Image Success', {
+        size: part.inlineData.data.length,
+        image: imageData // Log the full image data for the console
+      }, {
+        agentRole: logContext?.agentRole,
+        linkedMessageId: logContext?.linkedMessageId
+      });
+      return imageData;
     }
 
     throw new Error("No image data received from Gemini 3 Pro");
@@ -1300,7 +1257,7 @@ export const editImage = async (
 
     if (part && part.inlineData && part.inlineData.data) {
       logDebug('res', 'Edit Image Success', { size: part.inlineData.data.length });
-      return `data: image / png; base64, ${part.inlineData.data} `;
+      return `data:image/png;base64,${part.inlineData.data}`;
     }
 
     throw new Error("No image data received from Gemini 3 Pro");
@@ -1408,51 +1365,62 @@ export const outpaintImage = async (imageUri: string, prompt: string, direction:
 
 
 // --- 15. Generate Asset Image (Designer Agent) ---
+// --- 15. Generate Asset Image (ART DIRECTOR AGENT) ---
 export const generateAssetImage = async (
   type: 'character' | 'location' | 'item',
   data: import("../types").CharacterTemplate | import("../types").LocationTemplate | import("../types").ItemTemplate,
   projectContext: { title: string; tone: string; style: string }
 ): Promise<string> => {
   const agentManager = AgentManager.getInstance();
-  const modelName = "gemini-3-pro-preview";
+  const modelName = "gemini-2.5-flash";
   const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "application/json" } });
 
-  // 1. Initialize Designer Agent
-  const designerSystemPrompt = DEFAULT_SYSTEM_INSTRUCTIONS[AgentRole.DESIGNER]
-    .replace('{{title}}', projectContext.title)
-    .replace('{{style}}', projectContext.style)
-    .replace('{{tone}}', projectContext.tone);
+  // 1. Initialize Art Director Agent
+  const systemInstruction = DEFAULT_SYSTEM_INSTRUCTIONS[AgentRole.ART_DIRECTOR];
 
-  // We use a stateless approach for the designer for now, or we could persist it.
-  // Let's persist it to keep history of generated assets.
-  const chatSession = agentManager.getAgent(AgentRole.DESIGNER, model, designerSystemPrompt, {
+  const chatSession = agentManager.getAgent(AgentRole.ART_DIRECTOR, model, systemInstruction, {
     model: modelName,
-    dynamicPrompt: designerSystemPrompt,
-    finalPrompt: designerSystemPrompt
+    dynamicPrompt: systemInstruction,
+    finalPrompt: systemInstruction
   });
 
   // 2. Construct Request
-  let userRequest = "";
+  let assetDescription = "";
   if (type === 'character') {
     const char = data as import("../types").CharacterTemplate;
-    userRequest = `Create a portrait prompt for CHARACTER: ${char.name}. Role: ${char.role}. Description: ${char.visual_seed.description}`;
+    assetDescription = `Role: ${char.role}. Visuals: ${char.visual_seed.description}`;
   } else if (type === 'location') {
     const loc = data as import("../types").LocationTemplate;
-    userRequest = `Create a wide shot prompt for LOCATION: ${loc.name}. Type: ${loc.interior_exterior}. Description: ${loc.environment_prompt}`;
+    assetDescription = `Type: ${loc.interior_exterior}. Environment: ${loc.environment_prompt}`;
   } else {
     const item = data as import("../types").ItemTemplate;
-    userRequest = `Create a product shot prompt for ITEM: ${item.name}. Type: ${item.type}. Description: ${item.description}. Visual Details: ${item.visual_details}`;
+    assetDescription = `Type: ${item.type}. Description: ${item.description}. Visuals: ${item.visual_details}`;
   }
 
-  // 3. Get Prompt from Designer
+  const userRequest = `
+    PROJECT CONTEXT:
+    Title: ${projectContext.title}
+    Style: ${projectContext.style}
+    Tone: ${projectContext.tone}
+
+    TASK:
+    Generate a photorealistic image prompt for:
+    Type: ${type.toUpperCase()}
+    Name: ${data.name}
+    Details: ${assetDescription}
+
+    OUTPUT JSON: { "prompt": "..." }
+  `;
+
+  // 3. Get Prompt from Art Director
   const messageId = crypto.randomUUID();
-  logDebug('req', `Designer Agent: Generating prompt for ${data.name}`, { type }, {
+  logDebug('req', `Art Director Agent: Generating prompt for ${data.name}`, { type }, {
     model: modelName,
-    agentRole: AgentRole.DESIGNER,
+    agentRole: AgentRole.ART_DIRECTOR,
     linkedMessageId: messageId
   });
 
-  const responseText = await agentManager.sendMessage(AgentRole.DESIGNER, chatSession, userRequest, [], {
+  const responseText = await agentManager.sendMessage(AgentRole.ART_DIRECTOR, chatSession, userRequest, [], {
     model: modelName,
     messageId: messageId
   });
@@ -1460,7 +1428,7 @@ export const generateAssetImage = async (
   const responseJson = JSON.parse(responseText);
   const imagePrompt = responseJson.prompt;
 
-  logDebug('info', `Designer Agent: Prompt Generated`, { prompt: imagePrompt });
+  logDebug('info', `Art Director Agent: Prompt Generated`, { prompt: imagePrompt });
 
   // 4. Generate Image via Replicate
   // Aspect Ratio: 1:1 for Characters (Profile) and Items, 16:9 for Locations (Cinematic)
@@ -1469,9 +1437,12 @@ export const generateAssetImage = async (
   // Add style keywords to ensure consistency
   const finalImagePrompt = `${imagePrompt}, ${projectContext.style}, high quality, 8k`;
 
-  const imageUrl = await generateReplicateImage(finalImagePrompt, aspectRatio);
+  const imageUrl = await generateImage(finalImagePrompt, aspectRatio, {
+    agentRole: AgentRole.ART_DIRECTOR,
+    linkedMessageId: messageId
+  });
 
-  logDebug('res', `Designer Agent: Image Generated`, { imageUrl });
+  logDebug('res', `Art Director Agent: Image Generated`, { imageUrl });
 
   return imageUrl;
 };
@@ -1535,4 +1506,63 @@ export const generateVideoPrompt = async (
   });
 
   return text.trim();
+};
+
+// --- 17. Validate Continuity (Script Supervisor Agent) ---
+export const validateContinuity = async (
+  project: import("../types").ProjectBackbone
+): Promise<import("../types").AssetChangeAnalysis> => {
+  const agentManager = AgentManager.getInstance();
+  const modelName = "gemini-2.5-flash";
+  const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: "application/json" } });
+
+  const systemInstruction = DEFAULT_SYSTEM_INSTRUCTIONS[AgentRole.SCRIPT_SUPERVISOR];
+  const session = agentManager.getAgent(AgentRole.SCRIPT_SUPERVISOR, model, systemInstruction, {
+    model: modelName,
+    dynamicPrompt: systemInstruction,
+    finalPrompt: systemInstruction
+  });
+
+  const request = `
+      PROJECT CONTEXT:
+      Title: ${project.meta_data.title}
+      Tone: ${project.config.tone_style}
+      
+      SCRIPT TO VALIDATE:
+      ${JSON.stringify(project.database.scenes.map(s => ({
+    slugline: s.slugline,
+    action: s.script_content?.lines.filter(l => l.type === 'action').map(l => l.content).join(' '),
+    dialogue: s.script_content?.lines.filter(l => l.type === 'dialogue').map(l => `${l.speaker}: ${l.content}`).join('\n')
+  })))}
+
+      TASK:
+      Analyze the script for continuity errors, plot holes, and tone inconsistencies.
+      
+      OUTPUT JSON:
+      {
+        "status": "CONFIRMED" | "QUESTION",
+        "reasoning": "...",
+        "questions": [ { "id": "1", "text": "...", "options": ["..."] } ]
+      }
+    `;
+
+  // INTERCEPT FOR REVIEW
+  const finalPrompt = await checkReviewMode(request, 'Script Supervisor: Validate Continuity');
+  const msgId = crypto.randomUUID();
+
+  logDebug('req', 'Script Supervisor: Validate Continuity', {}, {
+    model: modelName,
+    agentRole: AgentRole.SCRIPT_SUPERVISOR,
+    linkedMessageId: msgId
+  });
+
+  const response = await agentManager.sendMessage(AgentRole.SCRIPT_SUPERVISOR, session, finalPrompt, [], {
+    model: modelName,
+    messageId: msgId
+  });
+
+  const json = JSON.parse(response);
+  logDebug('res', 'Script Supervisor: Validation Complete', { json }, { linkedMessageId: msgId });
+
+  return json;
 };

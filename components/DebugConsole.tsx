@@ -49,6 +49,13 @@ const JsonViewer: React.FC<{ data: any; level?: number; initialExpandedDepth?: n
     if (typeof data === 'boolean') return <span className="text-purple-400">{data.toString()}</span>;
     if (typeof data === 'number') return <span className="text-blue-400">{data}</span>;
     if (typeof data === 'string') {
+        if (data.startsWith('data:image')) {
+            return (
+                <div className="mt-2">
+                    <img src={data} alt="Debug Output" className="max-w-[200px] rounded border border-slate-700" />
+                </div>
+            );
+        }
         return <span className="text-emerald-400">"{data}"</span>;
     }
 
@@ -141,12 +148,13 @@ const LogItem: React.FC<{ log: LogEntry; isSummary?: boolean; onClick?: () => vo
 
     // Determine Icon
     const getIcon = () => {
-        if (log.agentRole === AgentRole.DIRECTOR || log.title.includes("Director")) return "🎬";
+        if (log.agentRole === AgentRole.SHOWRUNNER || log.title.includes("Showrunner")) return "🧠";
         if (log.agentRole === AgentRole.SCREENWRITER || log.title.includes("Screenwriter")) return "✍️";
-
-        if (log.agentRole === AgentRole.DESIGNER || log.title.includes("Designer")) return "🎨";
-        if (log.agentRole === AgentRole.ANALYST || log.title.includes("Analyst")) return "🧐";
-        if (log.agentRole === AgentRole.PROMPT_ENGINEER_VEO || log.title.includes("Prompt Engineer")) return "🎥";
+        if (log.agentRole === AgentRole.ART_DIRECTOR || log.title.includes("Art Director")) return "🎨";
+        if (log.agentRole === AgentRole.DIRECTOR || log.title.includes("Director")) return "🎬";
+        if (log.agentRole === AgentRole.DIRECTOR_OF_PHOTOGRAPHY || log.title.includes("DoP")) return "🎥";
+        if (log.agentRole === AgentRole.SCRIPT_SUPERVISOR || log.title.includes("Script Supervisor")) return "📋";
+        if (log.agentRole === AgentRole.PROMPT_ENGINEER_VEO || log.title.includes("Prompt Engineer")) return "🎞️";
         return null;
     };
     const icon = getIcon();
@@ -401,12 +409,12 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
     const [editedPrompt, setEditedPrompt] = useState("");
     const [activeTab, setActiveTab] = useState<'SYSTEM' | AgentRole>('SYSTEM');
     const [agentMessages, setAgentMessages] = useState<Record<AgentRole, AgentMessage[]>>({
-        [AgentRole.DIRECTOR]: [],
+        [AgentRole.SHOWRUNNER]: [],
         [AgentRole.SCREENWRITER]: [],
-
-
-        [AgentRole.DESIGNER]: [],
-        [AgentRole.ANALYST]: [],
+        [AgentRole.ART_DIRECTOR]: [],
+        [AgentRole.DIRECTOR]: [],
+        [AgentRole.DIRECTOR_OF_PHOTOGRAPHY]: [],
+        [AgentRole.SCRIPT_SUPERVISOR]: [],
         [AgentRole.PROMPT_ENGINEER_VEO]: []
     });
     const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
@@ -480,11 +488,12 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
     useEffect(() => {
         // Load initial history
         setAgentMessages({
-            [AgentRole.DIRECTOR]: getAgentHistory(AgentRole.DIRECTOR),
+            [AgentRole.SHOWRUNNER]: getAgentHistory(AgentRole.SHOWRUNNER),
             [AgentRole.SCREENWRITER]: getAgentHistory(AgentRole.SCREENWRITER),
-
-            [AgentRole.DESIGNER]: getAgentHistory(AgentRole.DESIGNER),
-            [AgentRole.ANALYST]: getAgentHistory(AgentRole.ANALYST),
+            [AgentRole.ART_DIRECTOR]: getAgentHistory(AgentRole.ART_DIRECTOR),
+            [AgentRole.DIRECTOR]: getAgentHistory(AgentRole.DIRECTOR),
+            [AgentRole.DIRECTOR_OF_PHOTOGRAPHY]: getAgentHistory(AgentRole.DIRECTOR_OF_PHOTOGRAPHY),
+            [AgentRole.SCRIPT_SUPERVISOR]: getAgentHistory(AgentRole.SCRIPT_SUPERVISOR),
             [AgentRole.PROMPT_ENGINEER_VEO]: getAgentHistory(AgentRole.PROMPT_ENGINEER_VEO)
         });
 
@@ -603,42 +612,54 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
             </div>
 
             {/* TAB BAR */}
-            <div className="bg-slate-900 px-6 pt-2 border-b border-slate-800 flex gap-1">
+            <div className="bg-slate-900 px-6 pt-2 border-b border-slate-800 flex gap-1 overflow-x-auto custom-scrollbar">
                 <button
                     onClick={() => { setActiveTab('SYSTEM'); setHighlightedMessageId(null); }}
-                    className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors ${activeTab === 'SYSTEM' ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
+                    className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors whitespace-nowrap ${activeTab === 'SYSTEM' ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
                 >
                     🖥️ System Logs
                 </button>
                 <button
-                    onClick={() => { setActiveTab(AgentRole.DIRECTOR); setHighlightedMessageId(null); }}
-                    className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors ${activeTab === AgentRole.DIRECTOR ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
+                    onClick={() => { setActiveTab(AgentRole.SHOWRUNNER); setHighlightedMessageId(null); }}
+                    className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors whitespace-nowrap ${activeTab === AgentRole.SHOWRUNNER ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
                 >
-                    🎬 Director
+                    🧠 Showrunner
                 </button>
                 <button
                     onClick={() => { setActiveTab(AgentRole.SCREENWRITER); setHighlightedMessageId(null); }}
-                    className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors ${activeTab === AgentRole.SCREENWRITER ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
+                    className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors whitespace-nowrap ${activeTab === AgentRole.SCREENWRITER ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
                 >
                     ✍️ Screenwriter
                 </button>
                 <button
-                    onClick={() => { setActiveTab(AgentRole.DESIGNER); setHighlightedMessageId(null); }}
-                    className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors ${activeTab === AgentRole.DESIGNER ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
+                    onClick={() => { setActiveTab(AgentRole.ART_DIRECTOR); setHighlightedMessageId(null); }}
+                    className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors whitespace-nowrap ${activeTab === AgentRole.ART_DIRECTOR ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
                 >
-                    🎨 Designer
+                    🎨 Art Director
                 </button>
                 <button
-                    onClick={() => { setActiveTab(AgentRole.ANALYST); setHighlightedMessageId(null); }}
-                    className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors ${activeTab === AgentRole.ANALYST ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
+                    onClick={() => { setActiveTab(AgentRole.DIRECTOR); setHighlightedMessageId(null); }}
+                    className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors whitespace-nowrap ${activeTab === AgentRole.DIRECTOR ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
                 >
-                    🧐 Analyst
+                    🎬 Director
+                </button>
+                <button
+                    onClick={() => { setActiveTab(AgentRole.DIRECTOR_OF_PHOTOGRAPHY); setHighlightedMessageId(null); }}
+                    className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors whitespace-nowrap ${activeTab === AgentRole.DIRECTOR_OF_PHOTOGRAPHY ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
+                >
+                    🎥 DoP
+                </button>
+                <button
+                    onClick={() => { setActiveTab(AgentRole.SCRIPT_SUPERVISOR); setHighlightedMessageId(null); }}
+                    className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors whitespace-nowrap ${activeTab === AgentRole.SCRIPT_SUPERVISOR ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
+                >
+                    📋 Script Sup.
                 </button>
                 <button
                     onClick={() => { setActiveTab(AgentRole.PROMPT_ENGINEER_VEO); setHighlightedMessageId(null); }}
-                    className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors ${activeTab === AgentRole.PROMPT_ENGINEER_VEO ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
+                    className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors whitespace-nowrap ${activeTab === AgentRole.PROMPT_ENGINEER_VEO ? 'bg-slate-800 text-white border-t border-l border-r border-slate-700' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
                 >
-                    🎥 Prompt Engineer Veo 3.1
+                    🎞️ Veo Eng.
                 </button>
             </div>
 
@@ -708,16 +729,50 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
                     </>
                 ) : (
                     <>
-                        {agentMessages[activeTab as AgentRole]?.length === 0 && (
-                            <div className="text-slate-600 italic text-center mt-12">No history for this agent yet...</div>
-                        )}
-                        {agentMessages[activeTab as AgentRole]?.map(msg => (
-                            <AgentMessageItem
-                                key={msg.id}
-                                message={msg}
-                                isHighlighted={msg.id === highlightedMessageId}
-                            />
-                        ))}
+                        {(() => {
+                            // Merge Agent Messages and Logs for this Agent
+                            const messages = agentMessages[activeTab as AgentRole] || [];
+                            const agentLogs = logs.filter(l => l.agentRole === activeTab);
+
+                            // Combine and Sort by Timestamp
+                            const combinedHistory = [
+                                ...messages.map(m => ({ type: 'message' as const, data: m, timestamp: m.timestamp })),
+                                ...agentLogs.map(l => ({ type: 'log' as const, data: l, timestamp: l.timestamp }))
+                            ].sort((a, b) => a.timestamp - b.timestamp);
+
+                            if (combinedHistory.length === 0) {
+                                return <div className="text-slate-600 italic text-center mt-12">No history for this agent yet...</div>;
+                            }
+
+                            return combinedHistory.map((item, idx) => {
+                                if (item.type === 'message') {
+                                    const msg = item.data as AgentMessage;
+                                    return (
+                                        <AgentMessageItem
+                                            key={`msg-${msg.id}`}
+                                            message={msg}
+                                            isHighlighted={msg.id === highlightedMessageId}
+                                        />
+                                    );
+                                } else {
+                                    const log = item.data as LogEntry;
+                                    return (
+                                        <div key={`log-${log.id}`} className="pl-8 pr-2">
+                                            <div className="border-l-2 border-slate-800 pl-4 py-2 relative">
+                                                {/* Connector Line Visual */}
+                                                <div className="absolute -left-[17px] top-4 w-4 h-px bg-slate-800"></div>
+
+                                                <LogItem
+                                                    log={log}
+                                                    isSummary={false} // Show full details inline
+                                                    onClick={() => { }}
+                                                />
+                                            </div>
+                                        </div>
+                                    );
+                                }
+                            });
+                        })()}
                     </>
                 )}
                 <div ref={logEndRef}></div>
