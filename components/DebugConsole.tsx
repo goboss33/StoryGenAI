@@ -440,6 +440,8 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
         [AgentRole.SHOWRUNNER]: [] // Keep for legacy logs if any
     });
     const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+    const [stateJsonDepth, setStateJsonDepth] = useState(2);
+    const [stateJsonKey, setStateJsonKey] = useState(0);
     const [chatInput, setChatInput] = useState("");
     const [isSending, setIsSending] = useState(false);
     const [systemPrompt, setSystemPrompt] = useState("");
@@ -768,15 +770,30 @@ const DebugConsole: React.FC<DebugConsoleProps> = ({
                     <div className="p-4">
                         <div className="flex justify-between items-center mb-4 border-b border-slate-800 pb-2">
                             <h3 className="text-sm font-bold text-slate-300 uppercase">Project Backbone State</h3>
-                            <button
-                                onClick={() => navigator.clipboard.writeText(JSON.stringify(projectState, null, 2))}
-                                className="text-xs text-indigo-400 hover:text-white uppercase font-bold hover:bg-slate-800 px-2 py-1 rounded transition-colors"
-                            >
-                                Copy State
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => { setStateJsonDepth(100); setStateJsonKey(prev => prev + 1); }}
+                                    className="text-[10px] text-indigo-400 hover:text-indigo-300 uppercase font-bold hover:bg-slate-800 px-2 py-1 rounded transition-colors"
+                                >
+                                    Expand All
+                                </button>
+                                <button
+                                    onClick={() => { setStateJsonDepth(0); setStateJsonKey(prev => prev + 1); }}
+                                    className="text-[10px] text-slate-500 hover:text-slate-300 uppercase font-bold hover:bg-slate-800 px-2 py-1 rounded transition-colors"
+                                >
+                                    Collapse All
+                                </button>
+                                <div className="w-px h-3 bg-slate-700 mx-1"></div>
+                                <button
+                                    onClick={() => navigator.clipboard.writeText(JSON.stringify(projectState, null, 2))}
+                                    className="text-xs text-indigo-400 hover:text-white uppercase font-bold hover:bg-slate-800 px-2 py-1 rounded transition-colors"
+                                >
+                                    Copy State
+                                </button>
+                            </div>
                         </div>
                         <div className="bg-slate-950/50 p-4 rounded border border-slate-800 overflow-x-auto custom-scrollbar">
-                            <JsonViewer data={projectState || { status: "No project state available" }} initialExpandedDepth={2} />
+                            <JsonViewer data={projectState || { status: "No project state available" }} initialExpandedDepth={stateJsonDepth} key={stateJsonKey} />
                         </div>
                     </div>
                 ) : (

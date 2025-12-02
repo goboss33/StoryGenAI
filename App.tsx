@@ -173,7 +173,8 @@ const App: React.FC = () => {
     stylePrompt: 'Cinematic lighting, photorealistic, 8k, highly detailed',
     aspectRatio: '16:9',
     assets: [],
-    isAssetsGenerated: false
+    isAssetsGenerated: false,
+    project: EMPTY_PROJECT_BACKBONE
   });
 
   const updateState = (updates: Partial<StoryState>) => {
