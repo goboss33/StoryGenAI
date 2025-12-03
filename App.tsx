@@ -6,6 +6,7 @@ import Step2Analysis from './components/Step2Analysis';
 import Step3Screenplay from './components/Step3Screenplay';
 import Step2Script from './components/Step2Script';
 import DebugConsole from './components/DebugConsole';
+import Step2bScriptProduction from './components/Step2bScriptProduction';
 import { Steps } from './components/ui/Steps';
 import {
   subscribeToDebugLog,
@@ -641,41 +642,29 @@ const App: React.FC = () => {
           </h2>
 
           <div className="flex items-center gap-4">
+            {/* Step 2b Toggle (Temporary) */}
+            {(state.step === 2 || state.step === 2.5) && (
+              <div className="flex items-center bg-slate-100 p-1 rounded-lg mr-4">
+                <button
+                  onClick={() => setState(prev => ({ ...prev, step: 2 }))}
+                  className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${state.step === 2 ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  Step 3 (Old)
+                </button>
+                <button
+                  onClick={() => setState(prev => ({ ...prev, step: 2.5 }))}
+                  className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${state.step === 2.5 ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  Step 2b (New)
+                </button>
+              </div>
+            )}
+
             {/* Global Actions */}
             <div className="flex items-center gap-2 mr-4 border-r border-slate-200 pr-4">
-              <button
-                onClick={saveProject}
-                className="text-xs font-bold text-slate-500 hover:text-indigo-600 flex items-center gap-1 bg-white px-3 py-1.5 rounded-full border border-slate-200 hover:border-indigo-200 transition-all shadow-sm"
-                title="Save Project"
-              >
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                Save
-              </button>
-
-              <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".json" className="hidden" />
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="text-xs font-bold text-slate-400 hover:text-indigo-600 flex items-center gap-1 bg-white px-3 py-1.5 rounded-full border border-slate-200 hover:border-indigo-200 transition-all shadow-sm"
-                title="Import Project"
-              >
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                Import
-              </button>
+              {/* ... */}
             </div>
-
-            {/* Debug Toggle */}
-            <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-200 hover:bg-slate-100 transition-colors">
-              <label className="relative inline-flex items-center cursor-pointer select-none gap-2">
-                <input
-                  type="checkbox"
-                  className="sr-only peer"
-                  checked={debugMode}
-                  onChange={(e) => setDebugMode(e.target.checked)}
-                />
-                <span className="text-xs font-bold text-slate-500 uppercase">Debug</span>
-                <div className="w-8 h-4 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:right-[2px] after:left-[calc(100%-16px)] peer-checked:after:left-[calc(100%-18px)] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-slate-800"></div>
-              </label>
-            </div>
+            {/* ... */}
           </div>
         </header>
 
@@ -686,10 +675,10 @@ const App: React.FC = () => {
         >
           <div className="max-w-6xl mx-auto">
             <div className="flex-shrink-0 mb-6">
-              <Steps currentStep={state.step} maxStep={maxStep} onStepClick={goToStep} />
+              <Steps currentStep={Math.floor(state.step)} maxStep={maxStep} onStepClick={goToStep} />
             </div>
 
-            <div className={`flex-1 flex flex-col min-h-0 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden ${state.step === 2 ? 'p-0' : 'p-4 md:p-8'}`}>
+            <div className={`flex-1 flex flex-col min-h-0 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden ${state.step === 2 || state.step === 2.5 ? 'p-0' : 'p-4 md:p-8'}`}>
               {state.step === 0 && (
                 <Step1Idea
                   idea={state.idea}
@@ -737,6 +726,13 @@ const App: React.FC = () => {
                 />
               )}
 
+              {state.step === 2.5 && (
+                <Step2bScriptProduction
+                  onBack={() => setState(prev => ({ ...prev, step: 1 }))}
+                  onNext={() => setState(prev => ({ ...prev, step: 3 }))}
+                />
+              )}
+
               {state.step === 3 && (
                 <Step2Script
                   idea={state.idea}
@@ -759,6 +755,7 @@ const App: React.FC = () => {
             </div>
           </div>
         </main>
+
 
         {/* DEBUG CONSOLE (INLINE ONLY - DETACHED IS HANDLED ABOVE) */}
         {debugMode && !isDebugDetached && (
