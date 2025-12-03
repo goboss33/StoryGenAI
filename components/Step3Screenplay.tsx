@@ -92,20 +92,22 @@ const ScriptLineItem = ({
 
     const isActive = activeLineId === line.id;
     const isDialogue = line.type === 'dialogue';
-    const characterColor = isDialogue ? getCharacterColor(line.speaker) : 'bg-transparent';
+    const characterColor = isDialogue ? getCharacterColor(line.speaker_name) : 'bg-transparent';
     const highlightClass = isActive && isDialogue ? characterColor : 'bg-transparent';
 
     // Find character asset if available
-    const character = isDialogue && characters ? characters.find(c => c.name.toUpperCase() === line.speaker?.toUpperCase()) : null;
+    const character = isDialogue && characters ? characters.find(c => c.id === line.speaker_id) : null;
     const characterImage = character?.visual_seed?.ref_image_url;
 
-    const handleTypeSelect = (type: ScriptLine['type'], speaker?: string) => {
+    const handleTypeSelect = (type: ScriptLine['type'], speakerId?: string, speakerName?: string) => {
         handleLineChange(sceneIndex, line.id, 'type', type);
-        if (type === 'dialogue' && speaker) {
-            handleLineChange(sceneIndex, line.id, 'speaker', speaker);
+        if (type === 'dialogue' && speakerId) {
+            handleLineChange(sceneIndex, line.id, 'speaker_id', speakerId);
+            handleLineChange(sceneIndex, line.id, 'speaker_name', speakerName || 'Unknown');
         }
         if (type === 'action') {
-            handleLineChange(sceneIndex, line.id, 'speaker', undefined);
+            handleLineChange(sceneIndex, line.id, 'speaker_id', undefined);
+            handleLineChange(sceneIndex, line.id, 'speaker_name', undefined);
             handleLineChange(sceneIndex, line.id, 'parenthetical', undefined);
         }
         setShowMenu(false);
@@ -149,7 +151,7 @@ const ScriptLineItem = ({
                     ) : (
                         <div className={`w-8 h-8 rounded-full border border-slate-200 flex items-center justify-center text-xs font-bold shadow-sm hover:border-indigo-300 transition-colors overflow-hidden ${characterImage ? 'bg-white' : (isDialogue ? characterColor : 'bg-white text-slate-400')}`}>
                             {characterImage ? (
-                                <img src={characterImage} alt={line.speaker} className="w-full h-full object-cover" />
+                                <img src={characterImage} alt={line.speaker_name} className="w-full h-full object-cover" />
                             ) : (
                                 <>
                                     {line.type === 'dialogue' && 'D'}
@@ -189,7 +191,7 @@ const ScriptLineItem = ({
                                 {characters?.map(char => (
                                     <button
                                         key={char.id}
-                                        onClick={(e) => { e.stopPropagation(); handleTypeSelect('dialogue', char.name.toUpperCase()); }}
+                                        onClick={(e) => { e.stopPropagation(); handleTypeSelect('dialogue', char.id, char.name); }}
                                         className="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 hover:text-indigo-600 transition-colors text-left"
                                     >
                                         <div className={`w-6 h-6 rounded-full flex-shrink-0 overflow-hidden flex items-center justify-center text-[10px] font-bold ${getCharacterColor(char.name)}`}>
@@ -204,7 +206,8 @@ const ScriptLineItem = ({
                                 ))}
                                 <div className="h-px bg-slate-100 my-1"></div>
                                 <button
-                                    onClick={(e) => { e.stopPropagation(); handleTypeSelect('dialogue', 'CHARACTER'); }}
+
+                                    onClick={(e) => { e.stopPropagation(); handleTypeSelect('dialogue', 'unknown_id', 'CHARACTER'); }}
                                     className="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-500 hover:bg-slate-50 hover:text-indigo-600 transition-colors text-left italic"
                                 >
                                     <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-[10px] text-slate-400">?</div>
@@ -230,7 +233,7 @@ const ScriptLineItem = ({
                 {/* Character Name (for Dialogue) */}
                 {line.type === 'dialogue' && (
                     <div className="mb-0.5 font-bold text-slate-700 uppercase text-sm tracking-wide select-none">
-                        {line.speaker || 'CHARACTER'}
+                        {line.speaker_name || 'CHARACTER'}
                     </div>
                 )}
 
@@ -396,7 +399,8 @@ const Step3Screenplay: React.FC<Props> = ({
             id: crypto.randomUUID(),
             type,
             content: type === 'action' ? '' : '',
-            speaker: type === 'dialogue' ? 'CHARACTER' : undefined,
+            speaker_id: type === 'dialogue' ? 'unknown_id' : undefined,
+            speaker_name: type === 'dialogue' ? 'CHARACTER' : undefined,
             parenthetical: type === 'parenthetical' ? '' : undefined
         };
 
@@ -587,8 +591,13 @@ const Step3Screenplay: React.FC<Props> = ({
                         <div>
                             <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Character</label>
                             <select
-                                value={activeLine.speaker || ''}
-                                onChange={(e) => handleLineChange(activeSceneIndex, activeLine.id, 'speaker', e.target.value)}
+                                value={activeLine.speaker_name || ''}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    const char = project.database.characters.find(c => c.name.toUpperCase() === val);
+                                    handleLineChange(activeSceneIndex, activeLine.id, 'speaker_name', val);
+                                    handleLineChange(activeSceneIndex, activeLine.id, 'speaker_id', char ? char.id : 'unknown_id');
+                                }}
                                 className="w-full p-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-slate-800"
                             >
                                 <option value="">Select Character...</option>

@@ -386,7 +386,8 @@ export interface ScriptLine {
   id: string;
   type: 'action' | 'dialogue' | 'parenthetical' | 'transition' | 'slugline';
   content: string;
-  speaker?: string;
+  speaker_id?: string;
+  speaker_name?: string;
   parenthetical?: string;
   metadata?: any;
 }

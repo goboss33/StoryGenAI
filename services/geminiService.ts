@@ -551,7 +551,16 @@ export const generateScriptContent = async (
       4. Output a JSON object with a "scenes" array.
       5. Each item in the "scenes" array MUST have:
          - "id": The EXACT ID of the scene from the context.
-         - "script_content": { "lines": [ ... ] }
+         - "script_content": { 
+             "lines": [ 
+               {
+                 "type": "dialogue",
+                 "speaker_id": "UUID of the character",
+                 "speaker_name": "Name of the character",
+                 "content": "..."
+               }
+             ] 
+           }
     `;
 
     // INTERCEPT FOR REVIEW
@@ -595,7 +604,12 @@ export const generateScriptContent = async (
         return {
           ...scene,
           script_content: {
-            lines: generatedScene.script_content.lines.map((l: any) => ({ ...l, id: crypto.randomUUID() }))
+            lines: generatedScene.script_content.lines.map((l: any) => ({
+              ...l,
+              id: crypto.randomUUID(),
+              speaker_id: l.speaker_id || l.speaker, // Fallback for backward compatibility or AI error
+              speaker_name: l.speaker_name || "Unknown"
+            }))
           }
         };
       }
@@ -1714,7 +1728,7 @@ export const validateContinuity = async (
       ${JSON.stringify(project.database.scenes.map(s => ({
     slugline: s.slugline,
     action: s.script_content?.lines.filter(l => l.type === 'action').map(l => l.content).join(' '),
-    dialogue: s.script_content?.lines.filter(l => l.type === 'dialogue').map(l => `${l.speaker}: ${l.content}`).join('\n')
+    dialogue: s.script_content?.lines.filter(l => l.type === 'dialogue').map(l => `${l.speaker_name}: ${l.content}`).join('\n')
   })))}
 
       TASK:
