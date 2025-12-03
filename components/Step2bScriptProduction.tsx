@@ -275,7 +275,7 @@ const LargeShotCard: React.FC<{ shot: any }> = ({ shot }) => {
 
 const Timeline = () => {
     return (
-        <div className="fixed bottom-0 left-0 right-0 h-48 bg-slate-900 border-t border-slate-800 flex flex-col z-50 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]">
+        <div className="fixed bottom-0 left-64 right-0 h-48 bg-slate-900 border-t border-slate-800 flex flex-col z-50 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]">
             {/* Timeline Tools */}
             <div className="h-10 border-b border-slate-800 flex items-center justify-between px-4 bg-slate-900">
                 <div className="flex items-center gap-4">
