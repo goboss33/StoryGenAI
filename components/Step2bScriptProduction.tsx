@@ -79,40 +79,32 @@ const LargeShotCard: React.FC<{ shot: any }> = ({ shot }) => {
                 {/* FRONT: Detailed Editor */}
                 <div className="backface-hidden bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden min-h-[400px] flex flex-col">
                     {/* Header Bar */}
-                    <div className="h-12 bg-slate-50 border-b border-slate-200 flex items-center justify-between px-4">
-                        <div className="flex items-center gap-4">
-                            <div className="flex items-center gap-2">
-                                <span className="w-6 h-6 bg-slate-800 text-white rounded flex items-center justify-center text-xs font-bold">#{shot.number}</span>
-                                <span className="text-xs font-mono text-slate-500 bg-slate-200 px-1.5 py-0.5 rounded">3s</span>
-                            </div>
-                            <div className="h-4 w-px bg-slate-300"></div>
-                            <div className="flex gap-2">
-                                <select className="bg-white border border-slate-300 rounded px-2 py-1 text-xs font-medium text-slate-700 focus:border-indigo-500 outline-none" defaultValue={shot.type}>
-                                    <option>Wide Shot</option>
-                                    <option>Medium Shot</option>
-                                    <option>Close-up</option>
-                                    <option>Extreme Close-up</option>
-                                </select>
-                                <select className="bg-white border border-slate-300 rounded px-2 py-1 text-xs font-medium text-slate-700 focus:border-indigo-500 outline-none" defaultValue={shot.camera.angle}>
-                                    <option>Eye Level</option>
-                                    <option>Low Angle</option>
-                                    <option>High Angle</option>
-                                    <option>Overhead</option>
-                                </select>
+                    <div className="h-16 bg-slate-50 border-b border-slate-200 flex items-center justify-between px-6">
+                        <div className="flex items-center gap-6">
+                            <span className="w-8 h-8 bg-slate-900 text-white rounded-lg flex items-center justify-center text-sm font-bold shadow-sm">#{shot.number}</span>
+
+                            {/* Editable Duration */}
+                            <div className="flex items-center gap-2 bg-white border border-slate-300 rounded-lg px-2 py-1.5 shadow-sm focus-within:border-indigo-500 focus-within:ring-1 focus-within:ring-indigo-500 transition-all">
+                                <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                <input
+                                    type="text"
+                                    defaultValue="3s"
+                                    className="w-8 text-sm font-bold text-slate-700 outline-none bg-transparent text-center"
+                                />
                             </div>
                         </div>
 
-                        {/* Tabs */}
-                        <div className="flex bg-slate-200 rounded p-1">
+                        {/* Prominent Tabs */}
+                        <div className="flex bg-slate-200/50 p-1.5 rounded-xl gap-1">
                             <button
                                 onClick={() => setActiveTab('visuals')}
-                                className={`px-3 py-1 rounded text-[10px] font-bold uppercase tracking-wider transition-all ${activeTab === 'visuals' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                className={`px-6 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${activeTab === 'visuals' ? 'bg-indigo-600 text-white shadow-md transform scale-105' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200'}`}
                             >
                                 Visuals
                             </button>
                             <button
                                 onClick={() => setActiveTab('audio')}
-                                className={`px-3 py-1 rounded text-[10px] font-bold uppercase tracking-wider transition-all ${activeTab === 'audio' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                className={`px-6 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${activeTab === 'audio' ? 'bg-indigo-600 text-white shadow-md transform scale-105' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200'}`}
                             >
                                 Audio
                             </button>
@@ -120,7 +112,7 @@ const LargeShotCard: React.FC<{ shot: any }> = ({ shot }) => {
 
                         <button
                             onClick={() => setIsFlipped(true)}
-                            className="text-slate-400 hover:text-indigo-600 transition-colors p-2 rounded hover:bg-slate-100"
+                            className="text-slate-400 hover:text-indigo-600 transition-colors p-2 rounded-lg hover:bg-indigo-50"
                             title="Preview Visuals"
                         >
                             <Icons.Flip />
@@ -133,6 +125,28 @@ const LargeShotCard: React.FC<{ shot: any }> = ({ shot }) => {
                             <div className="grid grid-cols-12 gap-8 animate-fadeIn h-full">
                                 {/* Left Column: Visual Details */}
                                 <div className="col-span-7 space-y-6">
+                                    {/* Moved Dropdowns */}
+                                    <div className="grid grid-cols-2 gap-6">
+                                        <div className="space-y-2">
+                                            <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Shot Type</label>
+                                            <select className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-700 focus:border-indigo-500 outline-none transition-all" defaultValue={shot.type}>
+                                                <option>Wide Shot</option>
+                                                <option>Medium Shot</option>
+                                                <option>Close-up</option>
+                                                <option>Extreme Close-up</option>
+                                            </select>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Camera Angle</label>
+                                            <select className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-700 focus:border-indigo-500 outline-none transition-all" defaultValue={shot.camera.angle}>
+                                                <option>Eye Level</option>
+                                                <option>Low Angle</option>
+                                                <option>High Angle</option>
+                                                <option>Overhead</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
                                     <div className="space-y-2">
                                         <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Action Description</label>
                                         <textarea
