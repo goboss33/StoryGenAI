@@ -10,7 +10,7 @@ interface Props {
 // --- DUMMY DATA FOR PROTOTYPE ---
 const DUMMY_SCENES = [
     {
-        id: 's1', number: 1, slugline: 'INT. LAB - DAY', duration: 15, shots: [
+        id: 's1', number: 1, slugline: 'INT. LAB - DAY', int_ext: 'INT', location: 'LAB', time: 'DAY', duration: 15, shots: [
             {
                 id: 'sh1', number: 1, type: 'Wide', description: 'Establishing shot of the lab. Cold, sterile atmosphere.',
                 image: 'https://placehold.co/1280x720/1a1a1a/ffffff?text=Shot+1',
@@ -35,7 +35,7 @@ const DUMMY_SCENES = [
         ]
     },
     {
-        id: 's2', number: 2, slugline: 'EXT. PARK - DAY', duration: 20, shots: [
+        id: 's2', number: 2, slugline: 'EXT. PARK - DAY', int_ext: 'EXT', location: 'PARK', time: 'DAY', duration: 20, shots: [
             {
                 id: 'sh4', number: 1, type: 'Tracking', description: 'Scientist walking in park.',
                 image: 'https://placehold.co/1280x720/27ae60/ffffff?text=Shot+4',
@@ -287,6 +287,93 @@ const LargeShotCard: React.FC<{ shot: any }> = ({ shot }) => {
     );
 };
 
+const SceneHeader: React.FC<{ scene: any }> = ({ scene }) => {
+    const [intExt, setIntExt] = useState<'INT' | 'EXT'>(scene.int_ext || 'INT');
+    const [time, setTime] = useState<'DAY' | 'NIGHT'>(scene.time || 'DAY');
+    const [location, setLocation] = useState(scene.location || 'LOCATION');
+    const [isTimeOpen, setIsTimeOpen] = useState(false);
+
+    return (
+        <div className="bg-slate-900 border-b border-slate-800 p-6 sticky top-0 z-30">
+            <div className="flex justify-between items-center">
+                <div className="flex items-center gap-6">
+                    {/* Scene Number - Simple Text */}
+                    <span className="text-slate-500 font-bold text-sm uppercase tracking-wider">SCENE {scene.number}</span>
+
+                    {/* INT/EXT Toggle */}
+                    <div className="flex bg-slate-800 rounded-lg p-1 border border-slate-700">
+                        <button
+                            onClick={() => setIntExt('INT')}
+                            className={`px-3 py-1.5 rounded text-xs font-bold transition-all ${intExt === 'INT' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
+                        >
+                            INT
+                        </button>
+                        <button
+                            onClick={() => setIntExt('EXT')}
+                            className={`px-3 py-1.5 rounded text-xs font-bold transition-all ${intExt === 'EXT' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
+                        >
+                            EXT
+                        </button>
+                    </div>
+
+                    {/* Location Name */}
+                    <input
+                        type="text"
+                        value={location}
+                        onChange={(e) => setLocation(e.target.value)}
+                        className="bg-transparent text-2xl font-black text-white outline-none border-b-2 border-transparent focus:border-indigo-500 transition-all w-64 placeholder-slate-600"
+                        placeholder="LOCATION NAME"
+                    />
+
+                    {/* Time Dropdown */}
+                    <div className="relative">
+                        <button
+                            onClick={() => setIsTimeOpen(!isTimeOpen)}
+                            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white px-3 py-2 rounded-lg transition-all"
+                        >
+                            {time === 'DAY' ? (
+                                <svg className="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
+                            ) : (
+                                <svg className="w-5 h-5 text-indigo-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>
+                            )}
+                            <span className="text-sm font-bold">{time}</span>
+                            <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                        </button>
+
+                        {isTimeOpen && (
+                            <div className="absolute top-full left-0 mt-2 w-32 bg-slate-800 border border-slate-700 rounded-lg shadow-xl overflow-hidden z-50">
+                                <button
+                                    onClick={() => { setTime('DAY'); setIsTimeOpen(false); }}
+                                    className="w-full text-left px-4 py-2 text-sm font-bold text-white hover:bg-slate-700 flex items-center gap-2"
+                                >
+                                    <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
+                                    DAY
+                                </button>
+                                <button
+                                    onClick={() => { setTime('NIGHT'); setIsTimeOpen(false); }}
+                                    className="w-full text-left px-4 py-2 text-sm font-bold text-white hover:bg-slate-700 flex items-center gap-2"
+                                >
+                                    <svg className="w-4 h-4 text-indigo-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>
+                                    NIGHT
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                <div className="flex items-center gap-6">
+                    <div className="text-right">
+                        <div className="flex items-baseline gap-1">
+                            <span className="text-2xl font-light text-white">{scene.duration}</span>
+                            <span className="text-sm font-bold text-slate-500">s</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const Timeline = () => {
     return (
         <div className="fixed bottom-0 left-64 right-0 h-48 bg-slate-900 border-t border-slate-800 flex flex-col z-50 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]">
@@ -373,30 +460,8 @@ const Step2bScriptProduction: React.FC<Props> = ({ onBack, onNext }) => {
                 <div className="max-w-5xl mx-auto p-8">
                     {DUMMY_SCENES.map(scene => (
                         <div key={scene.id} className="mb-12 bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-                            {/* Scene Header - Dark Theme */}
-                            <div className="bg-slate-900 border-b border-slate-800 p-6 sticky top-0 z-30">
-                                <div className="flex justify-between items-start">
-                                    <div>
-                                        <div className="flex items-center gap-3 mb-2">
-                                            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Scene {scene.number}</span>
-                                            <span className="px-2 py-0.5 bg-slate-800 border border-slate-700 text-slate-300 rounded text-[10px] font-bold uppercase">Day</span>
-                                        </div>
-                                        <h3 className="text-xl font-black text-white">{scene.slugline}</h3>
-                                        <p className="text-slate-400 text-sm mt-1 max-w-2xl">
-                                            {scene.shots[0].description} {/* Using first shot desc as scene summary for prototype */}
-                                        </p>
-                                    </div>
-                                    <div className="flex items-center gap-4">
-                                        <div className="text-right">
-                                            <span className="block text-2xl font-light text-slate-400">{scene.duration}s</span>
-                                            <span className="text-[10px] text-slate-500 uppercase font-bold">Est. Duration</span>
-                                        </div>
-                                        <button className="w-10 h-10 rounded-full bg-slate-800 border border-slate-700 text-indigo-400 flex items-center justify-center hover:bg-indigo-900 hover:text-indigo-300 hover:border-indigo-800 transition-colors">
-                                            <span className="text-xl font-light">+</span>
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
+                            {/* Scene Header - Interactive */}
+                            <SceneHeader scene={scene} />
 
                             {/* Shots List */}
                             <div className="p-8 space-y-8 bg-slate-50/50">
