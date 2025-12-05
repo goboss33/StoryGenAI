@@ -14,23 +14,53 @@ const DUMMY_SCENES = [
             {
                 id: 'sh1', number: 1, type: 'Wide', description: 'Establishing shot of the lab. Cold, sterile atmosphere.',
                 image: 'https://placehold.co/1280x720/1a1a1a/ffffff?text=Shot+1',
-                camera: { angle: 'High Angle', movement: 'Static', lighting: 'Fluorescent' },
+                camera: { angle: 'High Angle', movement: 'Static', lighting: 'Fluorescent', focal_length: '35mm', depth_of_field: 'Deep Focus' },
                 audio: { dialogue: 'NARRATOR: It started here.', sfx: 'Humming of machines' },
-                assets: ['Scientist', 'Microscope']
+                assets: ['Scientist', 'Microscope'],
+                final_image_prompt: 'Cinematic wide shot of a sterile futuristic laboratory, cold blue lighting, high tech equipment, 8k resolution, photorealistic',
+                video_motion_prompt: 'Slow camera push in towards the center of the lab',
+                veo_elements: {
+                    cinematography: 'Wide angle, high angle, static camera',
+                    subject_context: 'Empty lab with rows of desks',
+                    action: 'None',
+                    style_ambiance: 'Cold, sterile, sci-fi, futuristic',
+                    audio_prompt: 'Low hum of machinery, distant computer beeps',
+                    negative_prompt: 'Blurry, low quality, distorted, people'
+                }
             },
             {
                 id: 'sh2', number: 2, type: 'Medium', description: 'Scientist looking at microscope.',
                 image: 'https://placehold.co/1280x720/2c3e50/ffffff?text=Shot+2',
-                camera: { angle: 'Eye Level', movement: 'Slow Push In', lighting: 'Rim Light' },
+                camera: { angle: 'Eye Level', movement: 'Slow Push In', lighting: 'Rim Light', focal_length: '50mm', depth_of_field: 'Shallow Focus' },
                 audio: { dialogue: 'SCIENTIST: Incredible...', sfx: 'Glass clinking' },
-                assets: ['Scientist', 'Microscope', 'Lab Coat']
+                assets: ['Scientist', 'Microscope', 'Lab Coat'],
+                final_image_prompt: 'Medium shot of a scientist in a lab coat looking into a microscope, rim lighting, detailed face, intense focus',
+                video_motion_prompt: 'Camera slowly pushes in on the scientist',
+                veo_elements: {
+                    cinematography: 'Medium shot, eye level, slow push in',
+                    subject_context: 'Scientist at work',
+                    action: 'Scientist adjusting microscope',
+                    style_ambiance: 'Professional, focused, dramatic lighting',
+                    audio_prompt: 'Glass clinking, heavy breathing',
+                    negative_prompt: 'Cartoon, drawing, bad anatomy'
+                }
             },
             {
                 id: 'sh3', number: 3, type: 'Close-up', description: 'Bacteria moving on slide.',
                 image: 'https://placehold.co/1280x720/e67e22/ffffff?text=Shot+3',
-                camera: { angle: 'Macro', movement: 'Handheld', lighting: 'Backlit' },
+                camera: { angle: 'Macro', movement: 'Handheld', lighting: 'Backlit', focal_length: '100mm', depth_of_field: 'Macro' },
                 audio: { dialogue: '', sfx: 'Squishing sound' },
-                assets: ['Bacteria Sample']
+                assets: ['Bacteria Sample'],
+                final_image_prompt: 'Macro shot of bacteria moving on a glass slide, backlit, vibrant colors, microscopic detail',
+                video_motion_prompt: 'Handheld camera movement following the bacteria',
+                veo_elements: {
+                    cinematography: 'Macro, handheld',
+                    subject_context: 'Microscopic view',
+                    action: 'Bacteria wiggling',
+                    style_ambiance: 'Scientific, abstract, colorful',
+                    audio_prompt: 'Squishing sounds, liquid movement',
+                    negative_prompt: 'Blurry, out of focus'
+                }
             },
         ]
     },
@@ -39,9 +69,19 @@ const DUMMY_SCENES = [
             {
                 id: 'sh4', number: 1, type: 'Tracking', description: 'Scientist walking in park.',
                 image: 'https://placehold.co/1280x720/27ae60/ffffff?text=Shot+4',
-                camera: { angle: 'Low Angle', movement: 'Tracking', lighting: 'Natural Sun' },
+                camera: { angle: 'Low Angle', movement: 'Tracking', lighting: 'Natural Sun', focal_length: '24mm', depth_of_field: 'Deep Focus' },
                 audio: { dialogue: '', sfx: 'Birds chirping' },
-                assets: ['Scientist']
+                assets: ['Scientist'],
+                final_image_prompt: 'Tracking shot of a scientist walking in a park, sunny day, green trees, lens flare',
+                video_motion_prompt: 'Camera tracks alongside the scientist',
+                veo_elements: {
+                    cinematography: 'Tracking shot, low angle',
+                    subject_context: 'Park environment',
+                    action: 'Walking briskly',
+                    style_ambiance: 'Natural, bright, hopeful',
+                    audio_prompt: 'Birds chirping, footsteps on grass',
+                    negative_prompt: 'Dark, gloomy, rain'
+                }
             },
         ]
     }
@@ -175,6 +215,29 @@ const LargeShotCard: React.FC<{ shot: any }> = ({ shot }) => {
                                             />
                                         </div>
                                     </div>
+                                    <div className="grid grid-cols-2 gap-6">
+                                        <div className="space-y-2">
+                                            <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Focal Length</label>
+                                            <select className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-sm text-slate-700 focus:border-indigo-500 outline-none" defaultValue={shot.camera.focal_length}>
+                                                <option>14mm (Ultra Wide)</option>
+                                                <option>24mm (Wide)</option>
+                                                <option>35mm (Standard Wide)</option>
+                                                <option>50mm (Standard)</option>
+                                                <option>85mm (Portrait)</option>
+                                                <option>100mm (Macro)</option>
+                                                <option>200mm (Telephoto)</option>
+                                            </select>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Depth of Field</label>
+                                            <select className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-sm text-slate-700 focus:border-indigo-500 outline-none" defaultValue={shot.camera.depth_of_field}>
+                                                <option>Deep Focus (Everything in focus)</option>
+                                                <option>Standard</option>
+                                                <option>Shallow Focus (Blurry background)</option>
+                                                <option>Macro (Extremely shallow)</option>
+                                            </select>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 {/* Right Column: Assets (Merged) */}
@@ -264,15 +327,49 @@ const LargeShotCard: React.FC<{ shot: any }> = ({ shot }) => {
                             </button>
                         </div>
 
-                        {/* Center Play Button (if video) */}
-                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-white/30 transition-colors border border-white/30">
-                                <svg className="w-8 h-8 ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
-                            </button>
+                        {/* Prompt Details Overlay - Visible on Hover or Always? User said "par dessus l'image" */}
+                        <div className="absolute inset-0 top-16 bottom-20 px-6 py-4 overflow-y-auto custom-scrollbar bg-black/60 backdrop-blur-sm text-white opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                            <div className="space-y-4">
+                                <div>
+                                    <h4 className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider mb-1">Final Image Prompt</h4>
+                                    <p className="text-xs text-slate-200 leading-relaxed">{shot.final_image_prompt}</p>
+                                </div>
+                                <div>
+                                    <h4 className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider mb-1">Video Motion Prompt</h4>
+                                    <p className="text-xs text-slate-200 leading-relaxed">{shot.video_motion_prompt}</p>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Cinematography</h4>
+                                        <p className="text-xs text-slate-300">{shot.veo_elements?.cinematography}</p>
+                                    </div>
+                                    <div>
+                                        <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Subject Context</h4>
+                                        <p className="text-xs text-slate-300">{shot.veo_elements?.subject_context}</p>
+                                    </div>
+                                    <div>
+                                        <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Action</h4>
+                                        <p className="text-xs text-slate-300">{shot.veo_elements?.action}</p>
+                                    </div>
+                                    <div>
+                                        <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Style & Ambiance</h4>
+                                        <p className="text-xs text-slate-300">{shot.veo_elements?.style_ambiance}</p>
+                                    </div>
+                                    <div>
+                                        <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Audio Prompt</h4>
+                                        <p className="text-xs text-slate-300">{shot.veo_elements?.audio_prompt}</p>
+                                    </div>
+                                    <div>
+                                        <h4 className="text-[10px] font-bold text-red-400 uppercase tracking-wider mb-1">Negative Prompt</h4>
+                                        <p className="text-xs text-slate-300">{shot.veo_elements?.negative_prompt}</p>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
 
                         {/* Bottom Actions */}
-                        <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black/90 to-transparent flex justify-center gap-4 translate-y-full group-hover:translate-y-0 transition-transform">
+                        <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black/90 to-transparent flex justify-center gap-4 z-20">
                             <button className="px-4 py-2 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-lg text-white text-sm font-bold border border-white/10 transition-colors flex items-center gap-2">
                                 <Icons.Video /> Generate Video
                             </button>
