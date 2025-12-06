@@ -7,85 +7,15 @@ interface Props {
     onNext: () => void;
 }
 
-// --- DUMMY DATA FOR PROTOTYPE ---
-const DUMMY_SCENES = [
-    {
-        id: 's1', number: 1, slugline: 'INT. LAB - DAY', int_ext: 'INT', location: 'LAB', time: 'DAY', duration: 15, shots: [
-            {
-                id: 'sh1', number: 1, type: 'Wide', description: 'Establishing shot of the lab. Cold, sterile atmosphere.',
-                image: 'https://placehold.co/1280x720/1a1a1a/ffffff?text=Shot+1',
-                camera: { angle: 'High Angle', movement: 'Static', lighting: 'Fluorescent', focal_length: '35mm', depth_of_field: 'Deep Focus' },
-                audio: { dialogue: 'NARRATOR: It started here.', sfx: 'Humming of machines' },
-                assets: ['Scientist', 'Microscope'],
-                final_image_prompt: 'Cinematic wide shot of a sterile futuristic laboratory, cold blue lighting, high tech equipment, 8k resolution, photorealistic',
-                video_motion_prompt: 'Slow camera push in towards the center of the lab',
-                veo_elements: {
-                    cinematography: 'Wide angle, high angle, static camera',
-                    subject_context: 'Empty lab with rows of desks',
-                    action: 'None',
-                    style_ambiance: 'Cold, sterile, sci-fi, futuristic',
-                    audio_prompt: 'Low hum of machinery, distant computer beeps',
-                    negative_prompt: 'Blurry, low quality, distorted, people'
-                }
-            },
-            {
-                id: 'sh2', number: 2, type: 'Medium', description: 'Scientist looking at microscope.',
-                image: 'https://placehold.co/1280x720/2c3e50/ffffff?text=Shot+2',
-                camera: { angle: 'Eye Level', movement: 'Slow Push In', lighting: 'Rim Light', focal_length: '50mm', depth_of_field: 'Shallow Focus' },
-                audio: { dialogue: 'SCIENTIST: Incredible...', sfx: 'Glass clinking' },
-                assets: ['Scientist', 'Microscope', 'Lab Coat'],
-                final_image_prompt: 'Medium shot of a scientist in a lab coat looking into a microscope, rim lighting, detailed face, intense focus',
-                video_motion_prompt: 'Camera slowly pushes in on the scientist',
-                veo_elements: {
-                    cinematography: 'Medium shot, eye level, slow push in',
-                    subject_context: 'Scientist at work',
-                    action: 'Scientist adjusting microscope',
-                    style_ambiance: 'Professional, focused, dramatic lighting',
-                    audio_prompt: 'Glass clinking, heavy breathing',
-                    negative_prompt: 'Cartoon, drawing, bad anatomy'
-                }
-            },
-            {
-                id: 'sh3', number: 3, type: 'Close-up', description: 'Bacteria moving on slide.',
-                image: 'https://placehold.co/1280x720/e67e22/ffffff?text=Shot+3',
-                camera: { angle: 'Macro', movement: 'Handheld', lighting: 'Backlit', focal_length: '100mm', depth_of_field: 'Macro' },
-                audio: { dialogue: '', sfx: 'Squishing sound' },
-                assets: ['Bacteria Sample'],
-                final_image_prompt: 'Macro shot of bacteria moving on a glass slide, backlit, vibrant colors, microscopic detail',
-                video_motion_prompt: 'Handheld camera movement following the bacteria',
-                veo_elements: {
-                    cinematography: 'Macro, handheld',
-                    subject_context: 'Microscopic view',
-                    action: 'Bacteria wiggling',
-                    style_ambiance: 'Scientific, abstract, colorful',
-                    audio_prompt: 'Squishing sounds, liquid movement',
-                    negative_prompt: 'Blurry, out of focus'
-                }
-            },
-        ]
-    },
-    {
-        id: 's2', number: 2, slugline: 'EXT. PARK - DAY', int_ext: 'EXT', location: 'PARK', time: 'DAY', duration: 20, shots: [
-            {
-                id: 'sh4', number: 1, type: 'Tracking', description: 'Scientist walking in park.',
-                image: 'https://placehold.co/1280x720/27ae60/ffffff?text=Shot+4',
-                camera: { angle: 'Low Angle', movement: 'Tracking', lighting: 'Natural Sun', focal_length: '24mm', depth_of_field: 'Deep Focus' },
-                audio: { dialogue: '', sfx: 'Birds chirping' },
-                assets: ['Scientist'],
-                final_image_prompt: 'Tracking shot of a scientist walking in a park, sunny day, green trees, lens flare',
-                video_motion_prompt: 'Camera tracks alongside the scientist',
-                veo_elements: {
-                    cinematography: 'Tracking shot, low angle',
-                    subject_context: 'Park environment',
-                    action: 'Walking briskly',
-                    style_ambiance: 'Natural, bright, hopeful',
-                    audio_prompt: 'Birds chirping, footsteps on grass',
-                    negative_prompt: 'Dark, gloomy, rain'
-                }
-            },
-        ]
-    }
-];
+// --- DUMMY DATA REMOVED --- 
+// Using props provided by App.tsx
+
+interface Props {
+    project?: import('../types').ProjectBackbone;
+    onBack: () => void;
+    onNext: () => void;
+}
+
 
 // --- ICONS ---
 const Icons = {
@@ -524,7 +454,16 @@ const Timeline = () => {
     );
 };
 
-const Step2bScriptProduction: React.FC<Props> = ({ onBack, onNext }) => {
+const Step2bScriptProduction: React.FC<Props> = ({ project, onBack, onNext }) => {
+
+    if (!project) {
+        return (
+            <div className="h-full flex items-center justify-center">
+                <div className="text-center">Loading Project...</div>
+            </div>
+        );
+    }
+
     return (
         <div className="h-full flex flex-col bg-slate-50 overflow-hidden relative">
             {/* Top Bar */}
@@ -555,21 +494,43 @@ const Step2bScriptProduction: React.FC<Props> = ({ onBack, onNext }) => {
             {/* Main Workspace - Vertical Scroll */}
             <div className="flex-1 overflow-y-auto bg-slate-100 pb-64">
                 <div className="max-w-5xl mx-auto p-8">
-                    {DUMMY_SCENES.map(scene => (
+                    {project.database.scenes.map(scene => (
                         <div key={scene.id} className="mb-12 bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
                             {/* Scene Header - Interactive */}
-                            <SceneHeader scene={scene} />
+                            {/* Adapting SceneHeader to accept SceneTemplate structure which is compatible */}
+                            <SceneHeader scene={{ ...scene, number: scene.scene_index, duration: scene.estimated_duration_sec, int_ext: scene.slugline_elements?.int_ext, time: scene.slugline_elements?.time, location: scene.slugline_elements?.location }} />
 
                             {/* Shots List */}
                             <div className="p-8 space-y-8 bg-slate-50/50">
-                                {scene.shots.map(shot => (
-                                    <LargeShotCard key={shot.id} shot={shot} />
+                                {scene.shots && scene.shots.map(shot => (
+                                    <LargeShotCard key={shot.id} shot={{
+                                        ...shot,
+                                        number: shot.shot_index,
+                                        type: shot.composition.shot_type,
+                                        description: shot.content.ui_description,
+                                        image: 'https://placehold.co/1280x720/1a1a1a/ffffff?text=Image+Generating...', // Default until generated
+                                        camera: {
+                                            angle: shot.composition.angle,
+                                            movement: shot.composition.camera_movement,
+                                            lighting: shot.lighting || '',
+                                            focal_length: shot.composition.focal_length || '',
+                                            depth_of_field: shot.composition.depth_of_field || ''
+                                        },
+                                        audio: {
+                                            dialogue: shot.audio.dialogue?.map(d => `${d.speaker || 'UNKNOWN'}: ${d.text}`).join('\n') || '',
+                                            sfx: shot.audio.specificAudioCues || ''
+                                        },
+                                        assets: [...(shot.content.characters_in_shot || []), ...(shot.content.items_in_shot || [])],
+                                        final_image_prompt: shot.content.final_image_prompt,
+                                        video_motion_prompt: shot.content.video_motion_prompt,
+                                        veo_elements: shot.content.veo_elements
+                                    }} />
                                 ))}
 
                                 {/* Add Shot Button */}
                                 <button className="w-full py-4 border-2 border-dashed border-slate-300 rounded-xl text-slate-400 font-bold hover:border-indigo-400 hover:text-indigo-500 hover:bg-indigo-50 transition-all flex items-center justify-center gap-2">
                                     <span className="text-xl font-light">+</span>
-                                    Add Shot to Scene {scene.number}
+                                    Add Shot to Scene {scene.scene_index}
                                 </button>
                             </div>
                         </div>

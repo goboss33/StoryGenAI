@@ -886,7 +886,7 @@ function trackUsage(model: string, inputTokens: number, outputTokens: number, sp
   usageListeners.forEach(l => l(stats));
 }
 
-// --- AGENTIC WORKFLOW: STEP 3 - SHOT LIST (DIRECTOR & DoP AGENTS) ---
+// --- AGENTIC WORKFLOW: STEP 3 - SHOT LIST (DIRECTOR & DoP & ART DIRECTOR AGENTS) ---
 export const generateShotList = async (
   scene: import("../types").SceneTemplate,
   project: import("../types").ProjectBackbone
@@ -916,17 +916,19 @@ export const generateShotList = async (
         Break this scene into a sequence of shots.
         Total Duration must be approx ${scene.estimated_duration_sec}s.
 
-        OUTPUT JSON SCHEMA:
-        {
-          "shots": [
+        OUTPUT JSON SCHEMA (Array of objects):
+        [
             {
               "shot_index": 1,
               "duration_sec": 4,
-              "content": { "ui_description": "Description of action" },
+              "content": { 
+                "ui_description": "Description of action",
+                "characters_in_shot": ["Character Name or ID"],
+                "items_in_shot": ["Item Name or ID"]
+              },
               "composition": { "shot_type": "Wide" }
             }
-          ]
-        }
+        ]
       `;
 
     // INTERCEPT FOR REVIEW
@@ -944,8 +946,11 @@ export const generateShotList = async (
       messageId: directorMsgId
     });
 
-    const directorJson = JSON.parse(directorResponse);
-    let shots: import("../types").ShotTemplate[] = (directorJson.shots || []).map((s: any) => ({
+    let jsonResponse = JSON.parse(directorResponse);
+    // Handle both { shots: [] } and [] formats
+    let rawShots = Array.isArray(jsonResponse) ? jsonResponse : (jsonResponse.shots || []);
+
+    let shots: import("../types").ShotTemplate[] = rawShots.map((s: any) => ({
       ...s,
       id: crypto.randomUUID(),
       audio: { is_voice_over: false }, // Default
@@ -963,7 +968,6 @@ export const generateShotList = async (
       finalPrompt: dopSystemPrompt
     });
 
-    // We can process shots in batch or individually. Batch is faster.
     const dopRequest = `
         PROJECT STYLE: ${project.config.tone_style}
         
@@ -1003,7 +1007,7 @@ export const generateShotList = async (
     const dopJson = JSON.parse(dopResponse);
     const updates = dopJson.updates || [];
 
-    // Merge Updates
+    // Merge DoP Updates
     shots = shots.map(shot => {
       const update = updates.find((u: any) => u.shot_index === shot.shot_index);
       if (update) {
@@ -1019,6 +1023,70 @@ export const generateShotList = async (
 
     logDebug('res', `DoP Agent: Refined Shots`, { shots }, { linkedMessageId: dopMsgId });
 
+    // 3. ART DIRECTOR AGENT: Generate Visual Prompts
+    const artDirSystemPrompt = DEFAULT_SYSTEM_INSTRUCTIONS[AgentRole.ART_DIRECTOR];
+    const artDirSession = agentManager.getAgent(AgentRole.ART_DIRECTOR, model, artDirSystemPrompt);
+
+    // Prepare Global Contexts
+    const location = project.database.locations.find(l => l.id === scene.location_ref_id);
+    const locationContext = location
+      ? `Location: ${location.name}\nVisuals: ${location.environment_prompt}`
+      : `Location: ${scene.slugline_elements?.location || "Generic"}`;
+
+    for (let i = 0; i < shots.length; i++) {
+      const shot = shots[i];
+
+      // Resolve Characters
+      const shotCharNames = shot.content.characters_in_shot || []; // Director usually outputs names if instructed, or IDs?
+      // Let's assume Director outputs Names or IDs, we try to match both.
+      const activeChars = project.database.characters.filter(c =>
+        shotCharNames.includes(c.name) || shotCharNames.includes(c.id) || scene.characters_in_scene.includes(c.id) // Fallback to scene chars if specific shot chars are missing? No, Director should specify.
+      );
+
+      const characterContext = activeChars.length > 0
+        ? activeChars.map(c => `Subject: ${c.name}\nVisuals: ${c.visual_seed.description}`).join('\n')
+        : "Subject: None/Environment";
+
+      const artDirRequest = `
+            Combine the following elements into a single, highly detailed image generation prompt:
+
+            Style: ${project.global_assets.art_style_prompt}
+
+            Composition: ${shot.composition.shot_type}, ${shot.composition.angle}, ${shot.composition.camera_movement}, ${shot.lighting}
+
+            ${characterContext}
+
+            Action: ${shot.content.ui_description}
+
+            Setting: ${locationContext}
+
+            Output ONLY the raw prompt string inside a JSON object: { "final_image_prompt": "..." }
+        `;
+
+      // No review intercept for individual Art Director calls to avoid spamming the user, unless critical.
+      // We log it.
+      const artMsgId = crypto.randomUUID();
+      // logDebug('req', `Art Director: Prompt for Shot ${shot.shot_index}`, {}, { agentRole: AgentRole.ART_DIRECTOR, linkedMessageId: artMsgId }); // reduce noise?
+
+      const artResponse = await agentManager.sendMessage(AgentRole.ART_DIRECTOR, artDirSession, artDirRequest, [], {
+        model: modelName,
+        // finalPrompt: artDirRequest, 
+        messageId: artMsgId
+      });
+
+      try {
+        const artJson = JSON.parse(artResponse);
+        if (artJson.final_image_prompt) {
+          shots[i].content.final_image_prompt = artJson.final_image_prompt;
+        }
+      } catch (e) {
+        // fallback
+        console.warn("Failed to parse Art Director response", e);
+      }
+    }
+
+    logDebug('res', `Art Director: Prompts Generated`, {}, { linkedMessageId: crypto.randomUUID() });
+
     return shots;
 
   } catch (error) {
@@ -1026,6 +1094,36 @@ export const generateShotList = async (
     logDebug('error', `Generate Shot List Failed`, error);
     return [];
   }
+};
+
+export const generateProductionData = async (project: import("../types").ProjectBackbone): Promise<import("../types").ProjectBackbone> => {
+  logDebug('info', 'Starting Production Data Generation (Step 2.5)', {});
+
+  // Ensure Script Content exists (Step A)
+  if (!project.database.scenes[0].script_content) {
+    logDebug('info', 'Script content missing, generating first...', {});
+    project = await generateScriptContent(project);
+  }
+
+  const updatedScenes = [];
+
+  // Step B: Loop per Scene
+  for (const scene of project.database.scenes) {
+    logDebug('info', `Generating Production Data for Scene ${scene.scene_index}...`, {});
+    const shots = await generateShotList(scene, project);
+    updatedScenes.push({
+      ...scene,
+      shots: shots
+    });
+  }
+
+  return {
+    ...project,
+    database: {
+      ...project.database,
+      scenes: updatedScenes
+    }
+  };
 };
 
 // --- 0. Generate Audio Script (Step 1bis) ---

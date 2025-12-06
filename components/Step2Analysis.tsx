@@ -262,7 +262,7 @@ const Step2Analysis: React.FC<Props> = ({
         const newIndex = project.database.scenes.findIndex((s) => s.id === over.id);
 
         if (oldIndex !== -1 && newIndex !== -1) {
-            const newScenes = arrayMove(project.database.scenes, oldIndex, newIndex);
+            const newScenes = arrayMove(project.database.scenes, oldIndex, newIndex) as import('../types').SceneTemplate[];
             // Re-index scenes
             const reindexedScenes = newScenes.map((scene, idx) => ({ ...scene, scene_index: idx + 1 }));
             onUpdateAssets({ ...project.database, scenes: reindexedScenes });

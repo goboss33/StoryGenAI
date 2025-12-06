@@ -108,6 +108,7 @@ const EMPTY_PROJECT_BACKBONE: ProjectBackbone = {
         narrative_goal: "",
         estimated_duration_sec: 0,
         location_ref_id: "",
+        characters_in_scene: [],
         shots: [
           {
             shot_index: 0,
@@ -469,14 +470,36 @@ const App: React.FC = () => {
         setIsAnalyzing(false);
         setAnalysisStatus("");
       }
+      // ... inside nextStep ...
+    } else if (state.step === 1) {
+      setState(prev => ({ ...prev, step: 2 }));
+    } else if (state.step === 2) {
+      // Transition Step 2 -> Step 2.5 (Production Data Generation)
+      setIsAnalyzing(true);
+      setAnalysisStatus("Génération du découpage technique et des prompts...");
+      try {
+        if (state.project) {
+          const updatedProject = await import('./services/geminiService').then(m => m.generateProductionData(state.project!));
+          setState(prev => ({
+            ...prev,
+            project: updatedProject,
+            step: 2.5
+          }));
+          broadcastChannelRef.current?.postMessage({ type: 'PROJECT_STATE_UPDATE', payload: updatedProject });
+        } else {
+          setState(prev => ({ ...prev, step: 2.5 }));
+        }
+      } catch (error) {
+        console.error("Failed production data", error);
+        alert("Error generating production data");
+      } finally {
+        setIsAnalyzing(false);
+        setAnalysisStatus("");
+      }
     } else {
-      // If moving from Step 2 (Dialogue) to Step 3 (Production), sync script
-      if (state.step === 2 && state.project) {
-        setState(prev => ({
-          ...prev,
-          step: prev.step + 1,
-          script: prev.project!.database.scenes
-        }));
+      // ... existing logic ...
+      if (state.step === 2.5) {
+        setState(prev => ({ ...prev, step: 3 }));
       } else {
         setState(prev => ({ ...prev, step: prev.step + 1 }));
       }
@@ -755,7 +778,8 @@ const App: React.FC = () => {
 
               {state.step === 2.5 && (
                 <Step2bScriptProduction
-                  onBack={() => setState(prev => ({ ...prev, step: 1 }))}
+                  project={state.project}
+                  onBack={() => setState(prev => ({ ...prev, step: 2 }))}
                   onNext={() => setState(prev => ({ ...prev, step: 3 }))}
                 />
               )}
