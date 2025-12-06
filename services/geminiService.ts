@@ -1099,11 +1099,9 @@ export const generateShotList = async (
 export const generateProductionData = async (project: import("../types").ProjectBackbone): Promise<import("../types").ProjectBackbone> => {
   logDebug('info', 'Starting Production Data Generation (Step 2.5)', {});
 
-  // Ensure Script Content exists (Step A)
-  if (!project.database.scenes[0].script_content) {
-    logDebug('info', 'Script content missing, generating first...', {});
-    project = await generateScriptContent(project);
-  }
+  // Step A: Always Generate Script Content first (Screenwriter Agent)
+  logDebug('info', 'Step A: Generating Script Content (Dialogue & Action) via Screenwriter...', {});
+  project = await generateScriptContent(project);
 
   const updatedScenes = [];
 
